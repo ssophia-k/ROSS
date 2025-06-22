@@ -32,8 +32,11 @@ class Robot:
             step = (direction / norm) * speed
             self.x += step[0]
             self.y += step[1]
+        # make sure we don't go out of bounds (make it better later)
+        self.x = max(0, min(self.x, self.plane.width))
+        self.y = max(0, min(self.y, self.plane.height))
 
-    def sense_robots(self):
+    def sense_robots(self): # we return the vector FROM the neighbor TO this robot
         readings = []
         if not self.swarm:
             return readings
@@ -51,7 +54,7 @@ class Robot:
                 })
         return readings
 
-    def sense_voronoi_points(self):
+    def sense_voronoi_points(self): #we return the vector FROM the voronoi point TO this robot
         readings = []
         if not self.plane:
             return readings

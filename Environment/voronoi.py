@@ -12,7 +12,7 @@ class VoronoiDiagram:
         self.diagram = None
 
     def compute(self):
-        if len(self.points) >= 3:  # Minimum required for Voronoi
+        if len(self.points) >= 2:  # Minimum required for Voronoi
             self.diagram = Voronoi(self.points)
         else:
             self.diagram = None

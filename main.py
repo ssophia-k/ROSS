@@ -6,8 +6,8 @@ from Environment.points_and_plane import Plane
 from Agents.swarm import Swarm
 
 # 1. Setup environment and swarm
-plane = Plane(width=50, height=50, num_points=5)
-swarm = Swarm(plane=plane, num_robots=10, sensing_radius=50.0)
+plane = Plane(width=50, height=50, num_points=7)
+swarm = Swarm(plane=plane, num_robots=50, sensing_radius=50.0)
 
 # 2. Initialize robot paths after robots are created
 robot_paths = [[] for _ in range(len(swarm.robots))]
