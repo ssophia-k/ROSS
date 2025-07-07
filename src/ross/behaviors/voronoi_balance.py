@@ -37,4 +37,4 @@ class VoronoiBalanceBehavior:
 
             move_vec = point_drive + neighbor_repel
             if np.linalg.norm(move_vec) > 1e-2:
-                bot.move_toward(bot.get_position() + move_vec)
+                bot.move_toward(bot.get_position() + move_vec/np.linalg.norm(move_vec))

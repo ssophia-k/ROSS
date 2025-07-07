@@ -91,6 +91,11 @@ def update(frame):
     draw_voronoi(seed_points)
     frame_text.set_text(f"Frame: {frame + 1}/50")
 
+    # final frame has no trails
+    if frame == sim.steps - 1:
+        for trail in trails:
+            trail.set_data([], [])
+
     return scatters + trails + voronoi_lines + [frame_text]
 
 # Run Animation
@@ -99,3 +104,4 @@ ani = FuncAnimation(fig, update, frames=50, interval=100, blit=True, repeat=Fals
 plt.legend()
 plt.tight_layout()
 plt.show()
+fig.savefig("voronoi_swarm_simulation.png", dpi=300, bbox_inches='tight')
