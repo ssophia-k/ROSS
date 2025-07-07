@@ -17,3 +17,10 @@ class Swarm:
     def step(self):
         scans = {bot.id: bot.scan() for bot in self.robots}
         self.behavior.apply(self.robots, scans)
+
+    def deliver_message(self, sender_id: int, recipient_id: int, content: dict) -> None:
+        """Deliver a message from one robot to another."""
+        for bot in self.robots:
+            if bot.id == recipient_id:
+                bot.receive_message(sender_id, content)
+                break

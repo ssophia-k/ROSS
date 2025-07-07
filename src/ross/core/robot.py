@@ -21,6 +21,9 @@ class Robot:
         # Sensing
         self.sensing_radius = sensing_radius
 
+        # Messaging
+        self.messages = []  # Message queue
+
     def set_swarm(self, swarm: Any) -> None:
         self.swarm = swarm
 
@@ -89,6 +92,21 @@ class Robot:
             'robots': self.sense_robots(),
             'voronoi_points': self.sense_voronoi_points()
         }
+
+    def send_message(self, recipient_id: int, content: dict) -> None:
+        """Send a message to another robot in the swarm."""
+        if self.swarm:
+            self.swarm.deliver_message(self.id, recipient_id, content)
+
+    def receive_message(self, sender_id: int, content: dict) -> None:
+        """Receive a message from another robot."""
+        self.messages.append({'from': sender_id, 'content': content})
+
+    def get_messages(self) -> list:
+        """Retrieve and clear all received messages."""
+        msgs = self.messages[:]
+        self.messages.clear()
+        return msgs
 
     def __repr__(self) -> str:
         return f"<Robot id={self.id}, pos=({self.x:.2f}, {self.y:.2f})>"

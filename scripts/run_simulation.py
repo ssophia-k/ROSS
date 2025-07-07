@@ -11,7 +11,7 @@ from ross.behaviors.voronoi_balance import VoronoiBalanceBehavior
 # Initialize Environment, Swarm, Simulator
 
 field = Field(width=50, height=50, num_points=7)
-swarm = Swarm(field=field, num_robots=50, sensing_radius=50.0, behavior_cls=VoronoiBalanceBehavior)
+swarm = Swarm(field=field, num_robots=50, sensing_radius=100.0, behavior_cls=VoronoiBalanceBehavior)
 sim = Simulator(field=field, swarm=swarm, steps=50)
 
 # Set up Plot

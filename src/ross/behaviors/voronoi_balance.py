@@ -3,6 +3,10 @@ import numpy as np
 class VoronoiBalanceBehavior:
     def apply(self, robots, scans):
         for bot in robots:
+            messages = bot.get_messages()
+            for msg in messages:
+                pass # TODO: Process message content
+
             data = scans[bot.id]
             pts  = data['voronoi_points']
             nbrs = data['robots']
@@ -38,3 +42,16 @@ class VoronoiBalanceBehavior:
             move_vec = point_drive + neighbor_repel
             if np.linalg.norm(move_vec) > 1e-2:
                 bot.move_toward(bot.get_position() + move_vec/np.linalg.norm(move_vec))
+
+            # Share distances to markers and robots with neighbors
+            for nbr in nbrs:
+                bot.send_message(
+                    recipient_id=nbr['robot_id'],
+                    content={
+                        'type': 'distance_info',
+                        'from': bot.id,
+                        'to': nbr['robot_id'],
+                        'distance_to_marker': [p['distance'] for p in pts],
+                        'distance_to_robots': [n['distance'] for n in nbrs]
+                    }
+                )
