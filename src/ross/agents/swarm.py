@@ -67,7 +67,6 @@ class Swarm:
             
 
             
-
             
 
             #need to do a neighbor repulsion that moves along the line of point equidistance i think
