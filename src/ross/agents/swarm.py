@@ -31,9 +31,9 @@ class Swarm:
             pts  = data['voronoi_points']
             nbrs = data['robots']
 
-            # need at least two points
-            if len(pts) < 2:
-                continue
+            # # need at least two points
+            # if len(pts) < 2:
+            #     continue
 
             # neightbor repulsion
             neighbor_repel = np.zeros(2)
@@ -49,11 +49,18 @@ class Swarm:
 
             # points sorted st smallest distance is first
             nearby_points = sorted(pts, key=lambda d: d['distance'], reverse=False)
-            
-            # move away from the closest point. and move towards farthest point. get unit vector
-            u_closest = nearby_points[0]['vector'] / nearby_points[0]['distance']
-            u_farthest = nearby_points[-1]['vector'] / nearby_points[-1]['distance']
-            point_drive = (u_farthest - u_closest) / np.linalg.norm(u_farthest - u_closest)
+
+            # only look at the closest 2 points
+            # if len(nearby_points) < 2:
+            #     continue
+
+            point_drive = np.zeros(2)
+            if len(nearby_points) >= 2:
+                nearby_points = nearby_points[:2]
+                # move away from the closest point. and move towards farthest point. get unit vector
+                u_closest = nearby_points[0]['vector'] / nearby_points[0]['distance']
+                u_farthest = nearby_points[-1]['vector'] / nearby_points[-1]['distance']
+                point_drive = (u_farthest - u_closest) / np.linalg.norm(u_farthest - u_closest)
 
             #bot.move_toward(bot.get_position() + point_drive)
 
@@ -68,7 +75,7 @@ class Swarm:
             # move one unit step
             move_vec = point_drive + neighbor_repel
             norm = np.linalg.norm(move_vec)
-            if norm > 1e-1: # tolerancing for numerical stability
+            if norm > 1e-2: # tolerancing for numerical stability
                 step = (move_vec / norm)
                 bot.move_toward(bot.get_position() + step)
             

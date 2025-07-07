@@ -1,9 +1,16 @@
+import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from scipy.spatial import Voronoi
-import numpy as np
-from src.ross.environment.points_and_plane import Plane
-from src.ross.agents.swarm import Swarm
+
+# insert parent directory/src at beginning of python search path
+import os, sys
+from pathlib import Path
+src_dir = Path(__file__).parents[1] / "src"
+sys.path.insert(0, str(src_dir))
+from ross.environment.points_and_plane import Plane
+from ross.agents.swarm import Swarm
+
 
 # 1. Setup environment and swarm
 plane = Plane(width=50, height=50, num_points=7)
