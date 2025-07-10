@@ -1,15 +1,66 @@
 import numpy as np
 
 class VoronoiBalanceBehavior:
-    def apply(self, robots, scans):
+    def apply_movement(self, robots, scans):
         for bot in robots:
-            messages = bot.get_messages()
-            for msg in messages:
-                pass # TODO: Process message content
-
+            
+            # What the robot knows about neighboring robots and Voronoi points
             data = scans[bot.id]
             pts  = data['voronoi_points']
             nbrs = data['robots']
+
+            # Use messages to "extend" how much data we have 
+            messages = bot.get_messages()
+            for msg in messages:
+                if msg['content']['type'] == 'distance_info':
+                    sender_id = msg['from']
+                    receiver_dict = next((nbr for nbr in nbrs if nbr['robot_id'] == sender_id), None)
+                    if receiver_dict is None:
+                        continue
+                    else:
+                        sender_to_receiver_vector = receiver_dict['vector'] # vector is from our current robot data, so it is sender TO receiver(current robot)
+
+                    pts_in_sender_frame = msg['content']['voronoi_points']
+                    pts_in_receiver_frame = []
+                    for pt in pts_in_sender_frame:
+                        transformed_pt = pt['vector'] + sender_to_receiver_vector
+                        pts_in_receiver_frame.append({
+                            'point_id': pt['point_id'],
+                            'position': pt['position'],
+                            'vector': transformed_pt,
+                            'distance': np.linalg.norm(transformed_pt)
+                        })
+
+                    nbrs_in_sender_frame = msg['content']['neighbors']
+                    nbrs_in_receiver_frame = []
+                    for nbr in nbrs_in_sender_frame:
+                        transformed_nbr = nbr['vector'] + sender_to_receiver_vector
+                        nbrs_in_receiver_frame.append({
+                            'robot_id': nbr['robot_id'],
+                            'vector': transformed_nbr,
+                            'distance': np.linalg.norm(transformed_nbr)
+                        })
+
+                    # Cross reference the points and neighbors id with our current robot's data
+                    for new_pt in pts_in_receiver_frame:
+                        match = next((existing_pt for existing_pt in pts if new_pt['point_id'] == existing_pt['point_id']), None)
+                        if match:
+                            #match['vector'] = np.average([match['vector'], new_pt['vector']], axis=0)
+                            #match['distance'] = np.linalg.norm(match['vector'])
+                            pass
+                        else:
+                            pts.append(new_pt)
+
+                    for new_nbr in nbrs_in_receiver_frame:
+                        match = next((existing_nbr for existing_nbr in nbrs if new_nbr['robot_id'] == existing_nbr['robot_id']), None)
+                        if match:
+                            #match['vector'] = np.average([match['vector'], new_nbr['vector']], axis=0)
+                            #match['distance'] = np.linalg.norm(match['vector'])
+                            pass
+                        else:
+                            nbrs.append(new_nbr)
+
+
 
             # if len(pts) < 2:
             #     continue
@@ -43,6 +94,13 @@ class VoronoiBalanceBehavior:
             if np.linalg.norm(move_vec) > 1e-2:
                 bot.move_toward(bot.get_position() + move_vec/np.linalg.norm(move_vec))
 
+    def send_messages(self, robots, scans):
+        for bot in robots:
+            # What the robot knows about neighboring robots and Voronoi points
+            data = scans[bot.id]
+            pts  = data['voronoi_points']
+            nbrs = data['robots']
+
             # Share distances to markers and robots with neighbors
             for nbr in nbrs:
                 bot.send_message(
@@ -51,7 +109,10 @@ class VoronoiBalanceBehavior:
                         'type': 'distance_info',
                         'from': bot.id,
                         'to': nbr['robot_id'],
-                        'distance_to_marker': [p['distance'] for p in pts],
-                        'distance_to_robots': [n['distance'] for n in nbrs]
+                        'voronoi_points': pts, 
+                        'neighbors': nbrs
                     }
                 )
+
+
+            
