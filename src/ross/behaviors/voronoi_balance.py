@@ -72,8 +72,9 @@ class VoronoiBalanceBehavior:
                 d = nbr['distance']
                 if d < 1e-6:
                     continue
-                dirn = nbr['vector'] / d
-                neighbor_repel -= dirn * (1.0 / d**2)
+                elif d < bot.sensing_radius/2:
+                    dirn = nbr['vector'] / d
+                    neighbor_repel -= dirn * (1.0 / d**2)
             neighbor_repel *= 5 # tune this gain to spread more or less
 
             # Voronoi point attraction/repulsion
@@ -93,6 +94,7 @@ class VoronoiBalanceBehavior:
             move_vec = point_drive + neighbor_repel
             if np.linalg.norm(move_vec) > 1e-2:
                 bot.move_toward(bot.get_position() + move_vec/np.linalg.norm(move_vec))
+
 
     def send_messages(self, robots, scans):
         for bot in robots:
