@@ -1,20 +1,19 @@
 import numpy as np
 
 class VoronoiBalanceBehavior:
-    def apply_movement(self, robots, scans):
+
+    def process_scans(self, robots, scans):
         for bot in robots:
-            
+        
             # What the robot knows about neighboring robots and Voronoi points
-            data = scans[bot.id]
-            pts  = data['voronoi_points']
-            nbrs = data['robots']
+            #data = scans[bot.id]
 
             # Use messages to "extend" how much data we have 
             messages = bot.get_messages()
             for msg in messages:
                 if msg['content']['type'] == 'distance_info':
                     sender_id = msg['from']
-                    receiver_dict = next((nbr for nbr in nbrs if nbr['robot_id'] == sender_id), None)
+                    receiver_dict = next((nbr for nbr in scans[bot.id]['robots'] if nbr['robot_id'] == sender_id), None)
                     if receiver_dict is None:
                         continue
                     else:
@@ -43,29 +42,32 @@ class VoronoiBalanceBehavior:
 
                     # Cross reference the points and neighbors id with our current robot's data
                     for new_pt in pts_in_receiver_frame:
-                        match = next((existing_pt for existing_pt in pts if new_pt['point_id'] == existing_pt['point_id']), None)
+                        match = next((existing_pt for existing_pt in scans[bot.id]['voronoi_points'] if new_pt['point_id'] == existing_pt['point_id']), None)
                         if match:
                             #match['vector'] = np.average([match['vector'], new_pt['vector']], axis=0)
                             #match['distance'] = np.linalg.norm(match['vector'])
                             pass
                         else:
-                            pts.append(new_pt)
+                            scans[bot.id]['voronoi_points'].append(new_pt)
 
                     for new_nbr in nbrs_in_receiver_frame:
-                        match = next((existing_nbr for existing_nbr in nbrs if new_nbr['robot_id'] == existing_nbr['robot_id']), None)
+                        match = next((existing_nbr for existing_nbr in scans[bot.id]['robots'] if new_nbr['robot_id'] == existing_nbr['robot_id']), None)
                         if match:
                             #match['vector'] = np.average([match['vector'], new_nbr['vector']], axis=0)
                             #match['distance'] = np.linalg.norm(match['vector'])
                             pass
                         else:
-                            nbrs.append(new_nbr)
+                            scans[bot.id]['robots'].append(new_nbr)
+        return scans
 
-
-
-            # if len(pts) < 2:
-            #     continue
-            # commented out to allow for neighbor repulsion even with one point
-
+    def apply_movement(self, robots, scans):
+        for bot in robots:
+            
+            # What the robot knows about neighboring robots and Voronoi points
+            data = scans[bot.id]
+            pts  = data['voronoi_points']
+            nbrs = data['robots']
+            
             # Repulsion from neighbors
             neighbor_repel = np.zeros(2)
             for nbr in nbrs:
@@ -95,7 +97,13 @@ class VoronoiBalanceBehavior:
             if np.linalg.norm(move_vec) > 1e-2:
                 bot.move_toward(bot.get_position() + move_vec/np.linalg.norm(move_vec))
 
-
+            # if zero points and zero neighbors, move randomly but bigly (to avoid getting stuck)
+            # if len(pts) <= 1 and len(nbrs) == 0:
+            #     random_move = np.random.uniform(-1, 1, size=2)
+            #     random_move /= np.linalg.norm(random_move)
+            #     bot.move_toward(bot.get_position() + random_move * 100)  
+        
+    
     def send_messages(self, robots, scans):
         for bot in robots:
             # What the robot knows about neighboring robots and Voronoi points

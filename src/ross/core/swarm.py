@@ -54,8 +54,11 @@ class Swarm:
 
     def step(self):
         scans = {bot.id: bot.scan() for bot in self.robots}
+        #print("Scans:", scans)
         self.behavior.send_messages(self.robots, scans)
+        scans = self.behavior.process_scans(self.robots, scans)
         self.behavior.apply_movement(self.robots, scans)
+        #scans = None # Clear scans after processing
 
 
     def deliver_message(self, sender_id: int, recipient_id: int, content: dict) -> None:
