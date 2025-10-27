@@ -1,3 +1,5 @@
-# meow
+# ROSS - Robotic Operating Swarm System
+<!-- Robotic Operating Soot Sprites -->
+## Simulation
 
-using poetry for python package management
+Run `./simulation/simulation.py` to generate a GIF and a PNG of the Voronoi swarm simulation.
