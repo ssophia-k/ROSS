@@ -27,7 +27,6 @@ from typing import List, Dict, Any, Tuple
 from shapely.geometry import MultiPoint, box
 from shapely.ops import voronoi_diagram
 
-
 # %%
 # Simulation parameters
 STEP_COUNT = 120            # Number of simulation frames (total steps in animation)
@@ -51,15 +50,14 @@ NUM_ROBOTS = 30             # Total number of robots in the swarm
 SENSING_RADIUS = 20.0       # Radius within which robots can sense neighbors and seed points
 SPEED = 1.0                 # Movement step size per simulation iteration
 
-
 # %% [markdown]
 # ## Spawn Seeds
 
 # %%
-def spawn_points(n: int, range: dict[str, tuple[int, int]]) -> np.ndarray:
-    """Spawn `n` random points within the specified `range`."""
-    xs = np.random.uniform(range["x"][0], range["x"][1], size=n)
-    ys = np.random.uniform(range["y"][0], range["y"][1], size=n)
+def spawn_points(n: int, bounds: dict[str, tuple[int, int]]) -> np.ndarray:
+    """Spawn `n` random points within the specified bounds."""
+    xs = np.random.uniform(bounds["x"][0], bounds["x"][1], size=n)
+    ys = np.random.uniform(bounds["y"][0], bounds["y"][1], size=n)
     return np.c_[xs, ys]
 
 seed_coords = spawn_points(NUM_POINTS, SEED_SPAWN_AREA)
@@ -70,7 +68,6 @@ ax.set_title("Seeds")
 ax.set_xlabel("X"); ax.set_ylabel("Y")
 ax.plot(seed_coords[:,0], seed_coords[:,1], '^', linestyle='None')
 plt.show()
-
 
 # %% [markdown]
 # ## Spawn Robots
@@ -84,7 +81,6 @@ ax.set_title("Initial robots and seeds")
 ax.plot(seed_coords[:,0], seed_coords[:,1], '^', linestyle='None')
 ax.plot(robot_coords[:,0], robot_coords[:,1], 'o', markersize=3)
 plt.show()
-
 
 # %% [markdown]
 # ## Sensing
@@ -167,102 +163,23 @@ for pt in scans[active_robot_index]["seeds"]:
 
 plt.show()
 
-
-# %% [markdown]
-# ## Messaging ipynb dasf
-
-# %%
-def send_distance_info_from_scans(inbox: List[list], scans: List[Dict[str, List[Dict[str, Any]]]]) -> None:
-    for i, scan in enumerate(scans):
-        for ninfo in scan["robots"]:
-            j = ninfo["id"]
-            inbox[j].append({
-                "type": "distance_info",
-                "from": i,
-                "to": j,
-                "seeds": scan["seeds"],
-                "robots": scan["robots"],
-            })
-            
-from pprint import pprint
-
-# Show inbox content for one robot
-inboxes: List[list] = [[] for _ in range(NUM_ROBOTS)] # Initialize message inbox for each robot
-send_distance_info_from_scans(inboxes, scans)
-print("Sample inbox for robot", active_robot_index)
-pprint(inboxes[active_robot_index])
-
-
 # %% [markdown]
 # ## Behavior
 
 # %%
-def pop_inbox(inbox: List[list]) -> List[list]:
-    """Clear the inbox and return all messages."""
-    msgs = [m[:] for m in inbox]
-    for q in inbox:
-        q.clear()
-    return msgs
-
 def behavior(
     robot_index: int,
     robot_positions: np.ndarray,
     sensing_radius: float,
-    inboxes: List[list]
 ):
-    # Sensing for this robot
+    # Local sensing
     scan = sensor(robot_positions, seed_coords, sensing_radius)[robot_index]
-    robots = scan["robots"]
+    neighbors = scan["robots"]
     seeds = scan["seeds"]
 
-    # Collect incoming messages
-    inbox = pop_inbox(inboxes)[robot_index]
-
-    # Prepare merged data structures
-    combined_neighbors = robots[:]
-    combined_seeds = seeds[:]
-
-    # Fuse data from received messages
-    for message in inbox:
-        if message.get("type") != "distance_info":
-            continue
-
-        sender_id = message["from"]
-        translation_vector = next(
-            (neighbor["vector"] for neighbor in combined_neighbors if neighbor["id"] == sender_id),
-            None
-        )
-        if translation_vector is None:
-            continue
-
-        # Merge seeds information
-        for seed in message["seeds"]:
-            adjusted_vector = seed["vector"] + translation_vector
-            combined_seeds.append({
-                "id": seed["id"],
-                "position": seed["position"],
-                "vector": adjusted_vector,
-                "distance": float(np.linalg.norm(adjusted_vector)),
-            })
-
-        # Merge neighbor information
-        for neighbor in message["robots"]:
-            if neighbor["id"] == robot_index:
-                continue
-            adjusted_vector = neighbor["vector"] + translation_vector
-            distance = float(np.linalg.norm(adjusted_vector))
-            existing_index = next(
-                (k for k, n in enumerate(combined_neighbors) if n["id"] == neighbor["id"]),
-                None
-            )
-            if existing_index is None:
-                combined_neighbors.append({"id": neighbor["id"], "vector": adjusted_vector, "distance": distance})
-            elif distance < combined_neighbors[existing_index]["distance"]:
-                combined_neighbors[existing_index] = {"id": neighbor["id"], "vector": adjusted_vector, "distance": distance}
-
-    # Compute repulsion from nearby neighbors
+    # Repulsion from nearby neighbors
     repulsion_vector = np.zeros(2)
-    for neighbor in combined_neighbors:
+    for neighbor in neighbors:
         distance = neighbor["distance"]
         if distance <= 1e-6:
             continue
@@ -270,38 +187,33 @@ def behavior(
             repulsion_vector -= (neighbor["vector"] / distance) * (1.0 / distance**2)
     repulsion_vector *= 5.0
 
-    # Compute attraction/drive toward balanced seed spacing
-    if len(combined_seeds) >= 2:
-        sorted_seeds = sorted(combined_seeds, key=lambda s: s["distance"])
+    # Attraction/drive using nearest and farthest seeds
+    if len(seeds) >= 2:
+        sorted_seeds = sorted(seeds, key=lambda s: s["distance"])
         closest_seed = sorted_seeds[0]
         farthest_seed = sorted_seeds[-1]
         drive_vector = (
             (farthest_seed["vector"] / max(farthest_seed["distance"], 1e-9)) -
             (closest_seed["vector"] / max(closest_seed["distance"], 1e-9))
         )
-        if np.linalg.norm(drive_vector) > 1e-6:
-            drive_vector /= np.linalg.norm(drive_vector)
+        n = np.linalg.norm(drive_vector)
+        if n > 1e-6:
+            drive_vector /= n
     else:
         drive_vector = np.zeros(2)
 
-    return robots, seeds, combined_neighbors, combined_seeds, repulsion_vector, drive_vector
-
+    return neighbors, seeds, repulsion_vector, drive_vector
 
 # Demonstration: decompose for one robot
-scans = sensor(robot_coords, seed_coords, SENSING_RADIUS)
-send_distance_info_from_scans(inboxes, scans)
-
 (
     local_neighbors,
     local_seeds,
-    fused_neighbors,
-    fused_seeds,
     repulsion_vector,
     drive_vector
-) = behavior(active_robot_index, robot_coords, SENSING_RADIUS, inboxes)
+) = behavior(active_robot_index, robot_coords, SENSING_RADIUS)
 
-print("Local neighbors:", len(local_neighbors), "Fused neighbors:", len(fused_neighbors))
-print("Local seeds:", len(local_seeds), "Fused seeds:", len(fused_seeds))
+print("Local neighbors:", len(local_neighbors))
+print("Local seeds:", len(local_seeds))
 print("Repulsion vector:", repulsion_vector, "Drive vector:", drive_vector)
 
 # Visualization
@@ -313,10 +225,7 @@ ax.set_title(f"Robot {active_robot_index}: behavior components")
 ax.plot(seed_coords[:, 0], seed_coords[:, 1], '^', linestyle='None', label="seeds")
 ax.plot(robot_coords[:, 0], robot_coords[:, 1], 'o', markersize=3, label="robots")
 
-# visual scale factor for clarity
 ARROW_SCALE = 10.0
-
-# extended repulsion arrow
 ax.arrow(
     robot_coords[active_robot_index, 0],
     robot_coords[active_robot_index, 1],
@@ -327,8 +236,6 @@ ax.arrow(
     color="red",
     label="repulsion"
 )
-
-# extended drive arrow
 ax.arrow(
     robot_coords[active_robot_index, 0],
     robot_coords[active_robot_index, 1],
@@ -339,58 +246,19 @@ ax.arrow(
     color="green",
     label="drive"
 )
-
 ax.legend()
 plt.show()
-
 
 # %% [markdown]
 # ## One-step update
 
 # %%
 def one_step(robot_positions: np.ndarray):
-    # Local scans and message broadcast
     scans = sensor(robot_positions, seed_coords, SENSING_RADIUS)
-    send_distance_info_from_scans(inboxes, scans)
-    messages_per_robot = pop_inbox(inboxes)
 
-    # Update per robot
     for i in range(len(robot_positions)):
         neighbors = scans[i]["robots"][:]  # local neighbors
         seeds     = scans[i]["seeds"][:]   # local seeds
-
-        # Fuse received information into the local frame
-        for msg in messages_per_robot[i]:
-            if msg.get('type') != 'distance_info':
-                continue
-            sender_id = msg['from']
-            translation_vector = next(
-                (n['vector'] for n in neighbors if n['id'] == sender_id), None
-            )
-            if translation_vector is None:
-                continue
-
-            # Seeds
-            for seed in msg['seeds']:
-                adjusted_vec = seed['vector'] + translation_vector
-                seeds.append({
-                    'id': seed['id'],
-                    'position': seed['position'],
-                    'vector': adjusted_vec,
-                    'distance': float(np.linalg.norm(adjusted_vec)),
-                })
-
-            # Neighbors
-            for nb in msg['robots']:
-                if nb['id'] == i:
-                    continue
-                adjusted_vec = nb['vector'] + translation_vector
-                dist = float(np.linalg.norm(adjusted_vec))
-                existing = next((k for k, x in enumerate(neighbors) if x['id'] == nb['id']), None)
-                if existing is None:
-                    neighbors.append({'id': nb['id'], 'vector': adjusted_vec, 'distance': dist})
-                elif dist < neighbors[existing]['distance']:
-                    neighbors[existing] = {'id': nb['id'], 'vector': adjusted_vec, 'distance': dist}
 
         # Forces
         repulsion = np.zeros(2)
@@ -406,8 +274,9 @@ def one_step(robot_positions: np.ndarray):
             seeds_sorted = sorted(seeds, key=lambda s: s['distance'])
             near, far = seeds_sorted[0], seeds_sorted[-1]
             drive = (far['vector'] / max(far['distance'], 1e-9)) - (near['vector'] / max(near['distance'], 1e-9))
-            if np.linalg.norm(drive) > 1e-6:
-                drive /= np.linalg.norm(drive)
+            n = np.linalg.norm(drive)
+            if n > 1e-6:
+                drive /= n
         else:
             drive = np.zeros(2)
 
@@ -432,7 +301,6 @@ for i in range(len(pos_before)):
     dx, dy = pos_after[i] - pos_before[i]
     ax.arrow(pos_before[i,0], pos_before[i,1], dx, dy, head_width=0.8, length_includes_head=True)
 plt.show()
-
 
 # %% [markdown]
 # ## Voronoi Drawing
@@ -468,17 +336,12 @@ ax.set_xlim(0, FIELD_SIZE[0])
 ax.set_ylim(0, FIELD_SIZE[1])
 ax.set_aspect("equal")
 ax.set_title("Voronoi cells of seed points (Shapely bounded)")
-
-# Plot seeds
 ax.plot(seed_coords[:, 0], seed_coords[:, 1], '^', label='seed points')
 
-# Use the Shapely-based Voronoi drawer
 voronoi_artists = []
 draw_voronoi(seed_coords, FIELD_SIZE[0], FIELD_SIZE[1], ax, voronoi_artists)
-
 ax.legend()
 plt.show()
-
 
 # %%
 PATHS: List[list] = [[robot_coords[i].copy()] for i in range(NUM_ROBOTS)]
@@ -496,45 +359,13 @@ frame_text = ax.text(0.02, 0.98, '', transform=ax.transAxes, fontsize=10,
                      verticalalignment='top', bbox=dict(facecolor='white', alpha=0.7))
 
 def update(frame):
-    # Local scans and broadcast
+    # Local scans
     scans = sensor(robot_coords, seed_coords, SENSING_RADIUS)
-    send_distance_info_from_scans(inboxes, scans)
-    messages_per_robot = pop_inbox(inboxes)
 
     # Update robots
     for i in range(len(robot_coords)):
         neighbors = scans[i]["robots"][:]
         seeds     = scans[i]["seeds"][:]
-
-        for msg in messages_per_robot[i]:
-            if msg.get('type') != 'distance_info':
-                continue
-            sender_id = msg['from']
-            translation_vector = next(
-                (n['vector'] for n in neighbors if n['id'] == sender_id), None
-            )
-            if translation_vector is None:
-                continue
-
-            for seed in msg['seeds']:
-                adjusted_vec = seed['vector'] + translation_vector
-                seeds.append({
-                    'id': seed['id'],
-                    'position': seed['position'],
-                    'vector': adjusted_vec,
-                    'distance': float(np.linalg.norm(adjusted_vec)),
-                })
-
-            for nb in msg['robots']:
-                if nb['id'] == i:
-                    continue
-                adjusted_vec = nb['vector'] + translation_vector
-                dist = float(np.linalg.norm(adjusted_vec))
-                existing = next((k for k, x in enumerate(neighbors) if x['id'] == nb['id']), None)
-                if existing is None:
-                    neighbors.append({'id': nb['id'], 'vector': adjusted_vec, 'distance': dist})
-                elif dist < neighbors[existing]['distance']:
-                    neighbors[existing] = {'id': nb['id'], 'vector': adjusted_vec, 'distance': dist}
 
         # Forces
         repulsion = np.zeros(2)
@@ -550,8 +381,9 @@ def update(frame):
             seeds_sorted = sorted(seeds, key=lambda s: s['distance'])
             near, far = seeds_sorted[0], seeds_sorted[-1]
             drive = (far['vector'] / max(far['distance'], 1e-9)) - (near['vector'] / max(near['distance'], 1e-9))
-            if np.linalg.norm(drive) > 1e-6:
-                drive /= np.linalg.norm(drive)
+            n = np.linalg.norm(drive)
+            if n > 1e-6:
+                drive /= n
         else:
             drive = np.zeros(2)
 
@@ -578,8 +410,5 @@ def update(frame):
     return scatters + trails + voronoi_lines + [frame_text]
 
 ani = FuncAnimation(fig, update, frames=STEP_COUNT, interval=ANIMATION_INTERVAL, blit=True, repeat=False)
-# ani.save("voronoi.gif", fps=int(1000/ANIMATION_INTERVAL), writer='pillow')
-# fig.savefig("voronoi.png", dpi=300, bbox_inches='tight')
 plt.close(fig)
-HTML(ani.to_jshtml()) 
-
+HTML(ani.to_jshtml())
