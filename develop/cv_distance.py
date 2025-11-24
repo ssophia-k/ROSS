@@ -9,8 +9,14 @@ RANGES = {
     "green": [((35, 80, 60), (85, 255, 255))],
 }
 
+FOCAL_PX = 977.434
+OBJECT_RADIUS_CM = 5.000  # same as calibration ball
+
+# def radius_to_distance_cm(r_px: float) -> float:
+#     return 25.0 - 2.0 * (r_px + 25.0)
 def radius_to_distance_cm(r_px: float) -> float:
-    return 25.0 - 2.0 * (r_px + 25.0)
+    r_px = max(r_px, 1e-6)  # avoid division by zero
+    return (FOCAL_PX * OBJECT_RADIUS_CM) / r_px
 
 def build_mask(hsv, color):
     masks = [cv2.inRange(hsv, np.array(lo), np.array(hi)) for lo, hi in RANGES[color]]
