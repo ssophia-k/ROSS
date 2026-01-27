@@ -5,6 +5,6 @@
 
 Run `make` to see available commands.
 
-## Simulation
+## Notebooks
 
-Run `./simulation/simulation.py` to generate a GIF and a PNG of the Voronoi swarm simulation.
+Look inside the `notebooks/` folder for development notebooks and scripts.
