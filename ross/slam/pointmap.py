@@ -85,8 +85,9 @@ def _viewer_process(q: Queue, w: int = 1280, h: int = 720) -> None:  # noqa: C90
     # Persistent geometries we update each tick
     pcd = o3d.geometry.PointCloud()
     cam_lines = o3d.geometry.LineSet()  # thin lines connecting camera centres
-    vis.add_geometry(pcd)
-    vis.add_geometry(cam_lines)
+    # reset_bounding_box=False avoids bounding-box computation on empty geometry
+    vis.add_geometry(pcd, reset_bounding_box=False)
+    vis.add_geometry(cam_lines, reset_bounding_box=False)
 
     # Keep a list of camera-frustum LineSet objects
     cam_frustums: list[o3d.geometry.LineSet] = []
@@ -106,10 +107,9 @@ def _viewer_process(q: Queue, w: int = 1280, h: int = 720) -> None:  # noqa: C90
             if pts.shape[0] > 0:
                 pcd.points = o3d.utility.Vector3dVector(pts[:, :3])
                 pcd.paint_uniform_color([1, 0, 0])  # red points
-            else:
-                pcd.points = o3d.utility.Vector3dVector(np.empty((0, 3)))
-
-            vis.update_geometry(pcd)
+                vis.update_geometry(pcd)
+            # Skip update_geometry when empty – Open3D warns about a zero-point
+            # bounding box if called on an empty PointCloud.
 
             # Refit the camera the first time we have real geometry so the
             # viewer doesn't stay locked to the initial empty bounding box.
@@ -128,7 +128,7 @@ def _viewer_process(q: Queue, w: int = 1280, h: int = 720) -> None:  # noqa: C90
                 cam_lines.points = o3d.utility.Vector3dVector(centres)
                 cam_lines.lines = o3d.utility.Vector2iVector(lines)
                 cam_lines.paint_uniform_color([0, 0.8, 0])  # green trajectory
-            vis.update_geometry(cam_lines)
+                vis.update_geometry(cam_lines)
 
             # --- Camera frustums -------------------------------------------
             # Remove old frustums
