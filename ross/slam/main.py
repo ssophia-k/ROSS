@@ -98,11 +98,16 @@ def process_frame(img: np.ndarray, mapp: Map, display: Display) -> None:
     # ------------------------------------------------------------------
     pts4d = triangulate(f1.pose, f2.pose, f1.pts[idx1], f2.pts[idx2])
 
-    # Convert from homogeneous [X, Y, Z, W] → Euclidean [X, Y, Z, 1]
-    pts4d /= pts4d[:, 3:]
+    # Check W *before* normalising so we can use it as a parallax filter.
+    # W≈0 means the rays are nearly parallel (degenerate triangulation).
+    orig_w = pts4d[:, 3].copy()
+    good_w = np.abs(orig_w) > 1e-6
 
-    # Reject points with insufficient parallax or behind the camera
-    good_pts4d = (np.abs(pts4d[:, 3]) > 0.005) & (pts4d[:, 2] > 0)
+    # Normalise only well-conditioned points to avoid divide-by-zero.
+    pts4d[good_w] /= pts4d[good_w, 3:4]
+
+    # Reject degenerate (small |W|), low-parallax, or behind-camera points
+    good_pts4d = good_w & (np.abs(orig_w) > 0.005) & (pts4d[:, 2] > 0)
 
     for i, p in enumerate(pts4d):
         if not good_pts4d[i]:

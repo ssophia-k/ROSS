@@ -25,6 +25,11 @@ class Display:
         self.W = W
         self.H = H
         self.window_name = window_name
+        # Explicitly create the window before the first imshow call.
+        # Without this, the Qt backend on Linux can fail to initialise
+        # its raster painter and render a black window.
+        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(self.window_name, W, H)
 
     def paint(self, img) -> None:
         """Render *img* in the display window.

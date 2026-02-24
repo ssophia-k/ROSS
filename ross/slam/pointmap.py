@@ -92,6 +92,7 @@ def _viewer_process(q: Queue, w: int = 1280, h: int = 720) -> None:  # noqa: C90
     cam_frustums: list[o3d.geometry.LineSet] = []
 
     state = None
+    view_initialised = False  # becomes True after first non-empty update
 
     while True:
         # Drain queue, keep only the latest state
@@ -109,6 +110,12 @@ def _viewer_process(q: Queue, w: int = 1280, h: int = 720) -> None:  # noqa: C90
                 pcd.points = o3d.utility.Vector3dVector(np.empty((0, 3)))
 
             vis.update_geometry(pcd)
+
+            # Refit the camera the first time we have real geometry so the
+            # viewer doesn't stay locked to the initial empty bounding box.
+            if not view_initialised and pts.shape[0] > 0:
+                vis.reset_view_point(True)
+                view_initialised = True
 
             # --- Camera trajectory line ------------------------------------
             if poses.shape[0] >= 2:
