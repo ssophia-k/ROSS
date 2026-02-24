@@ -35,7 +35,7 @@ def generate_test_video(
     out_path = Path(output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore[attr-defined]
     writer = cv2.VideoWriter(str(out_path), fourcc, fps, (width, height))
 
     rng = np.random.default_rng(42)

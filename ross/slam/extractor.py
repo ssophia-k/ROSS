@@ -100,7 +100,7 @@ def extract(img: np.ndarray, max_corners: int = 3000) -> tuple[np.ndarray, np.nd
         (keypoint_coords, descriptors)
         keypoint_coords has shape (N, 2), descriptors has shape (N, 32).
     """
-    orb = cv2.ORB_create()
+    orb = cv2.ORB_create()  # type: ignore[attr-defined]
 
     # Convert to grayscale for corner detection
     gray = np.mean(img, axis=-1).astype(np.uint8) if img.ndim == 3 else img
@@ -224,7 +224,8 @@ def match_frames(f1, f2) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     )
 
     # Keep only inliers
-    Rt = extract_pose(model.params)
+    assert model is not None, "RANSAC failed to find a Fundamental matrix model"
+    Rt = extract_pose(model.params)  # type: ignore[union-attr]
     return idx1[inliers], idx2[inliers], Rt
 
 

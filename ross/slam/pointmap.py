@@ -74,7 +74,7 @@ def _viewer_process(q: Queue, w: int = 1280, h: int = 720) -> None:  # noqa: C90
         while True:
             q.get()
 
-    vis = o3d.visualization.Visualizer()
+    vis = o3d.visualization.Visualizer()  # type: ignore[attr-defined]
     vis.create_window(window_name="ROSS – 3-D Map", width=w, height=h)
 
     # Render options

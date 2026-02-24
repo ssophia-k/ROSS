@@ -1,4 +1,4 @@
-# ROSS 
+# ROSS
 
 ## Monocular Visual SLAM
 
@@ -8,7 +8,7 @@ A simple monocular Visual SLAM implementation in Python, based on the
 ### Pipeline
 
 | Stage | Description |
-|---|---|
+| --- | --- |
 | **Feature Extraction** | ORB descriptors on Shi-Tomasi corners (`goodFeaturesToTrack`) |
 | **Feature Matching** | BFMatcher + Lowe's ratio test + distance filter |
 | **Pose Estimation** | Fundamental matrix via RANSAC → SVD → R, t |
@@ -35,7 +35,7 @@ python -m ross.slam.main path/to/video.mp4 --focal 500
 
 ### File Structure
 
-```
+```text
 ross/slam/
 ├── __init__.py               # Package exports
 ├── extractor.py              # Feature extraction, matching, pose estimation, Frame class
