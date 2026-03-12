@@ -23,11 +23,11 @@ import subprocess
 import sys
 import time
 
-# ── Configuration ──────────────────────────────────────────────────────────────
+# ── Defaults ───────────────────────────────────────────────────────────────────
 
-BOOT_GPIO = 17  # RPi GPIO pin wired to ESP32 GPIO 0
-SERIAL_PORT = "/dev/ttyAMA0"
-BAUD_RATE = "460800"
+DEFAULT_BOOT_GPIO = 17
+DEFAULT_PORT = "/dev/ttyAMA0"
+DEFAULT_BAUD = "460800"
 FLASH_MODE = "dio"
 FLASH_FREQ = "40m"
 
@@ -45,54 +45,18 @@ def gpio_release(pin: int) -> None:
     subprocess.run(["pinctrl", "set", str(pin), "ip"], check=True)
 
 
-def enter_flash_mode() -> None:
-    """Pull GPIO 0 LOW and prompt user to press RST."""
-    print(f"→ Driving GPIO {BOOT_GPIO} LOW (selecting flash mode)")
-    gpio_output_low(BOOT_GPIO)
-    time.sleep(0.1)
-    print()
-    input("  Press RST on the ESP32-CAM, then press Enter here... ")
-    print()
-
-
-def exit_flash_mode() -> None:
-    """Release GPIO 0 and prompt user to press RST for normal boot."""
-    print(f"→ Releasing GPIO {BOOT_GPIO} (selecting normal boot)")
-    gpio_release(BOOT_GPIO)
-
-
 # ── esptool wrappers ──────────────────────────────────────────────────────────
 
 
-def run_esptool(args: list[str]) -> int:
+def run_esptool(port: str, extra_args: list[str]) -> int:
     """Run an esptool command, return exit code."""
-    cmd = ["uv", "run", "esptool", "--port", SERIAL_PORT] + args
+    cmd = ["uv", "run", "esptool", "--port", port] + extra_args
     print(f"→ {' '.join(cmd)}")
     result = subprocess.run(cmd)
     return result.returncode
 
 
-def chip_id() -> int:
-    return run_esptool(["--baud", "115200", "chip_id"])
-
-
-def erase_flash() -> int:
-    return run_esptool(["--baud", BAUD_RATE, "erase_flash"])
-
-
-def write_flash(image_args: list[str]) -> int:
-    return run_esptool([
-        "--baud", BAUD_RATE,
-        "--chip", "esp32",
-        "write_flash",
-        "--flash_mode", FLASH_MODE,
-        "--flash_freq", FLASH_FREQ,
-        "--flash_size", "detect",
-        *image_args,
-    ])
-
-
-# ── Argument parsing ──────────────────────────────────────────────────────────
+# ── Image argument parsing ────────────────────────────────────────────────────
 
 
 def parse_images(raw: list[str]) -> list[str]:
@@ -109,9 +73,11 @@ def parse_images(raw: list[str]) -> list[str]:
             addr, path = arg.split(":", 1)
             result.extend([addr, path])
         else:
-            # Single binary — default to address 0x0
             result.extend(["0x0", arg])
     return result
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 
 def main() -> None:
@@ -138,49 +104,62 @@ def main() -> None:
         help="Erase entire flash before writing.",
     )
     parser.add_argument(
-        "--port", default=SERIAL_PORT,
-        help=f"Serial port (default: {SERIAL_PORT}).",
+        "--port", default=DEFAULT_PORT,
+        help=f"Serial port (default: {DEFAULT_PORT}).",
     )
     parser.add_argument(
-        "--baud", default=BAUD_RATE,
-        help=f"Baud rate for flashing (default: {BAUD_RATE}).",
+        "--baud", default=DEFAULT_BAUD,
+        help=f"Baud rate for flashing (default: {DEFAULT_BAUD}).",
     )
     args = parser.parse_args()
-
-    # Apply overrides
-    global SERIAL_PORT, BAUD_RATE
-    SERIAL_PORT = args.port
-    BAUD_RATE = args.baud
 
     if not args.chip_id and not args.images:
         parser.error("Provide at least one firmware image, or use --chip-id.")
 
+    port = args.port
+    baud = args.baud
+    gpio = DEFAULT_BOOT_GPIO
+
     # ── Enter flash mode ──────────────────────────────────────────────────
-    enter_flash_mode()
+    print(f"→ Driving GPIO {gpio} LOW (selecting flash mode)")
+    gpio_output_low(gpio)
+    time.sleep(0.1)
+    print()
+    input("  Press RST on the ESP32-CAM, then press Enter here... ")
+    print()
 
     try:
         if args.chip_id:
-            rc = chip_id()
+            rc = run_esptool(port, ["--baud", "115200", "chip_id"])
             if rc != 0:
                 sys.exit(rc)
 
         if args.erase:
             print()
-            rc = erase_flash()
+            rc = run_esptool(port, ["--baud", baud, "erase_flash"])
             if rc != 0:
                 sys.exit(rc)
 
         if args.images:
             print()
             image_args = parse_images(args.images)
-            rc = write_flash(image_args)
+            rc = run_esptool(port, [
+                "--baud", baud,
+                "--chip", "esp32",
+                "write_flash",
+                "--flash_mode", FLASH_MODE,
+                "--flash_freq", FLASH_FREQ,
+                "--flash_size", "detect",
+                *image_args,
+            ])
             if rc != 0:
                 sys.exit(rc)
 
     finally:
         # Always release GPIO 0, even on failure
         print()
-        exit_flash_mode()
+        print(f"→ Releasing GPIO {gpio} (selecting normal boot)")
+        gpio_release(gpio)
 
     print()
     print("Done! Press RST on the ESP32-CAM to boot the new firmware.")
