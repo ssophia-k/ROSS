@@ -275,16 +275,16 @@ The fuel gauge sits **in-line** between the battery and the charger, allowing th
 | Battery JST-PH → Fuel Gauge **JST-PH port 1** | Battery in |
 | Fuel Gauge **JST-PH port 2** → Charger **VBAT** | Charger output |
 | Charger **USB-C** → 5V USB power | Wall supply |
-| Fuel Gauge **STEMMA QT** → Raspberry Pi I2C | See table below |
+| Fuel Gauge **I2C + VIN** → Raspberry Pi | See table below |
 
 **Fuel gauge I2C address:** `0x36`
 
-| RPi Pin | Signal | Fuel Gauge STEMMA QT |
-|---------|--------|----------------------|
-| Pin 1 | 3.3V | Red |
-| Pin 3 | GPIO 2 (SDA) | Blue |
-| Pin 5 | GPIO 3 (SCL) | Yellow |
-| Pin 9 | GND | Black |
+| RPi Pin | Signal | MAX17048 Pin |
+|---------|--------|--------------|
+| Pin 1 | 3.3V | **VIN** |
+| Pin 3 | GPIO 2 (SDA) | **SDA** |
+| Pin 5 | GPIO 3 (SCL) | **SCL** |
+| Pin 9 | GND | **GND** |
 
 > When the robot is docked, unplug the battery JST-PH from the robot's boost converter and plug it into the fuel gauge input port.
 
