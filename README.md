@@ -1,4 +1,6 @@
-# ROSS
+# ROSS — Robotic Operating Swarm System
+
+A teleoperated mobile robot platform built around the ESP32-CAM. The robot streams live video and IMU data over WiFi while accepting motor commands from a Linux workstation. A Raspberry Pi serves as a booting and charging station, flashing firmware over UART and monitoring battery state.
 
 ## Overview
 
@@ -47,6 +49,93 @@ flowchart TD
     FG <-->|"JST-PH — when docked"| BAT
     ESP <-->|"WiFi — video, IMU, commands"| PC
 ```
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- **Raspberry Pi** running Raspberry Pi OS (for flashing and charging)
+- **Linux PC** (for teleoperation)
+- **Hardware components** listed in the [Wiring](#wiring) section
+- **Python 3.12** and [uv](https://docs.astral.sh/uv/)
+- **PlatformIO** (`uv tool install platformio`)
+
+### Quick Start
+
+```bash
+# 1. Clone and install Python dependencies
+git clone <repo-url> && cd ROSS
+uv sync
+
+# 2. Configure WiFi credentials for the ESP32
+make setup-env
+
+# 3. Install PlatformIO and build firmware
+uv tool install platformio
+cd firmware && pio run && cd ..
+
+# 4. Flash firmware to the ESP32-CAM (see Flashing section for UART setup)
+uv run python ross/flash.py firmware/.pio/build/esp32cam/firmware.bin
+
+# 5. After the ESP32 boots, it prints its IP to serial — open http://<ip> in a browser
+```
+
+---
+
+## Project Structure
+
+```
+ROSS/
+├── firmware/                  # ESP32-CAM firmware (C++ / PlatformIO)
+│   ├── src/
+│   │   ├── main.cpp           # HTTP server, WiFi, IMU, streaming
+│   │   ├── camera.h / .cpp    # Camera driver
+│   │   ├── motors.h           # DRV8833 PWM motor control
+│   │   └── config.h           # Pin assignments, WiFi credential injection
+│   ├── platformio.ini         # Build configuration and dependencies
+│   └── load_env.py            # Pre-build script to load .env into firmware
+├── ross/                      # Python package (Raspberry Pi utilities)
+│   ├── flash.py               # Semi-automated firmware flashing over UART
+│   ├── serial_test.py         # UART connectivity diagnostic
+│   └── config.py              # Project paths and logging
+├── docs/
+│   └── esp32-cam-pinout.png   # Pinout reference diagram
+├── pyproject.toml             # Python project metadata and dependencies
+├── Makefile                   # setup-env helper
+├── .env.sample                # WiFi credentials template
+└── LICENSE                    # MIT
+```
+
+---
+
+## Software
+
+### Firmware (ESP32-CAM)
+
+The firmware runs an HTTP server on port 80 that exposes the following endpoints:
+
+| Endpoint | Method | Response | Description |
+|----------|--------|----------|-------------|
+| `/` | GET | HTML | Status page with links to other endpoints |
+| `/stream` | GET | MJPEG | Live camera video stream |
+| `/imu` | GET | JSON | Accelerometer, gyroscope, and temperature readings |
+| `/motor?l=N&r=N` | GET | JSON | Set motor speeds (each -255 to 255) |
+| `/stop` | GET | JSON | Stop both motors |
+
+Source files in `firmware/src/`:
+
+- **`main.cpp`** — WiFi connection, HTTP route handlers, IMU setup, MJPEG streaming loop
+- **`camera.h` / `camera.cpp`** — OV2640 camera initialization and JPEG frame capture
+- **`motors.h`** — PWM motor control for DRV8833 (forward, reverse, coast, brake)
+- **`config.h`** — GPIO pin definitions, I2C address, PWM frequency, WiFi credentials (injected at build time from `.env`)
+
+### Python Utilities
+
+- **`ross/flash.py`** — Semi-automated flashing script. Controls GPIO 0 via `pinctrl` to toggle the ESP32 between flash and run modes. Prompts for manual RST button presses. Run `uv run python ross/flash.py --help` for usage.
+- **`ross/serial_test.py`** — UART communication test harness for validating the serial link between the Pi and ESP32.
+- **`ross/config.py`** — Loads `.env` and exposes `PROJ_ROOT`.
 
 ---
 
@@ -347,7 +436,7 @@ pinctrl set 17 ip       # ip = input (floating)
 
 #### Semi-automated flashing script
 
-The script `ross/flash.py` handles GPIO 0 control and runs esptool automatically. You only need to press the RST button when prompted — the script waits for you then handles everything else. See [flash.py](#automated-script-rossflashpy) below for details.
+The script `ross/flash.py` handles GPIO 0 control and runs esptool automatically. You only need to press the RST button when prompted — the script waits for you then handles everything else. See [flash.py](#flash-script-rossflashpy) below for details.
 
 ```bash
 # Flash the application binary (writes to default address 0x10000)
@@ -475,3 +564,9 @@ See [usage examples](#semi-automated-flashing-script) above, or run `uv run pyth
 | Encoder cable confused with STEMMA QT cable | Both use JST-SH 1mm — label cables |
 | UART TX/RX swapped | RPi TX → ESP RX, RPi RX → ESP TX |
 | Battery polarity reversed on aftermarket cells | Verify with multimeter before connecting |
+
+---
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.

@@ -16,22 +16,10 @@ classifiers = [
     "License :: OSI Approved :: MIT License"
 ]
 dependencies = [
-    "ipython",
-    "jupyter>=1.1.1",
-    "jupyterlab",
-    "jupytext>=1.18.1",
+    "esptool",
     "loguru",
-    "matplotlib",
-    "nbdime>=4.0.2",
-    "notebook",
-    "numpy",
-    "pandas",
-    "pip",
     "python-dotenv",
     "ruff",
-    "scikit-learn",
-    "tqdm",
-    "typer",
 ]
 requires-python = "~=3.12.0"
 
