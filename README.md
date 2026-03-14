@@ -82,18 +82,31 @@ The battery's JST-PH connector has a single output, so the positive lead must be
 
 GPIO 2, 12, 13, 14, and 15 are shared with the SD card interface. This wiring uses all of them for the IMU and motor driver, so **the SD card cannot be used in firmware** — do not call `SD.begin()`. A physical card can remain in the slot; the SD peripheral must stay uninitialized.
 
+> ⚠️ **Strapping pins:** GPIO 0, 2, 12, and 15 are sampled at reset to select boot mode and flash voltage. See the [strapping pin notes](#strapping-pin-notes) below.
+
 | GPIO | Assigned To | Notes |
 |------|------------|-------|
-| **GPIO 2** | IMU SDA | I2C data |
+| **GPIO 2** | IMU SDA | I2C data · ⚠️ strapping pin — must be LOW or floating to enter flash mode |
 | **GPIO 3** (UART RX) | IMU SCL | Repurposed — UART RX only needed during flashing |
-| **GPIO 12** | DRV8833 AIN1 | Left motor forward PWM |
+| **GPIO 12** | DRV8833 AIN1 | Left motor forward PWM · ⚠️ strapping pin — must be LOW at boot (see below) |
 | **GPIO 13** | DRV8833 AIN2 | Left motor reverse PWM |
 | **GPIO 14** | DRV8833 BIN1 | Right motor forward PWM |
-| **GPIO 15** | DRV8833 BIN2 | Right motor reverse PWM |
+| **GPIO 15** | DRV8833 BIN2 | Right motor reverse PWM · ⚠️ strapping pin (see below) |
 | **GPIO 1** (UART TX) | Booting station RX | Flashing only |
 | **GPIO 0** | Booting station GPIO | Boot mode control — LOW = flash mode |
 
 > **GPIO 3 reuse:** During normal operation GPIO 3 is I2C SCL. The Raspberry Pi holds the line high-impedance when not flashing, so there is no conflict.
+
+#### Strapping Pin Notes
+
+GPIO 0, 2, 12, and 15 are **strapping pins** — the ESP32 samples them at reset to configure boot mode and flash voltage. In normal operation (after boot) they function as regular GPIOs.
+
+| GPIO | Strapping Function | Required State at Boot | This Design |
+|------|--------------------|----------------------|-------------|
+| **GPIO 0** | Boot mode select | HIGH = run from flash, LOW = UART download mode | Controlled by RPi GPIO 17. Internal pull-up holds it HIGH when released. |
+| **GPIO 2** | Must be LOW/floating for download mode | LOW or floating to enter download mode; ignored during normal boot (GPIO 0 HIGH) | Connected to IMU SDA. The IMU's I2C pull-up is weak enough that the pin reads LOW at reset — no conflict. If flashing fails, disconnect the IMU. |
+| **GPIO 12** (MTDI) | Flash voltage select | LOW = 3.3V flash (default), HIGH = 1.8V flash | Connected to DRV8833 AIN1. The motor driver input floats LOW when unpowered, so this is safe. **Do not drive GPIO 12 HIGH before the ESP32 boots** — it will set the flash interface to 1.8V, causing boot failure on a 3.3V flash chip. |
+| **GPIO 15** (MTDO) | Boot log output | HIGH = print boot messages on UART, LOW = silence boot messages | Connected to DRV8833 BIN2. If LOW at boot, UART boot messages are suppressed — not harmful, but may complicate debugging. |
 
 ---
 
@@ -200,6 +213,11 @@ Five wires between the Raspberry Pi and the ESP32-CAM header. No level shifter i
 | Pin 10 | GPIO 15 — UART RX | **GPIO 1 (TX)** | ESP transmits → RPi receives |
 | Pin 11 | GPIO 17 — output | **GPIO 0** | Drive LOW to enter flash mode |
 
+> ⚠️ **Strapping pins during flashing:** GPIO 2, 12, and 15 are sampled at reset alongside GPIO 0. For the ESP32 to enter download mode successfully:
+> - **GPIO 2** — must be LOW or floating. Connected to IMU SDA; disconnect the IMU if flashing fails.
+> - **GPIO 12** — must be LOW (selects 3.3V flash voltage). Connected to DRV8833 AIN1; ensure the motor driver is unpowered so the pin floats LOW.
+> - **GPIO 15** — if LOW at reset, UART boot messages are suppressed. Connected to DRV8833 BIN2; not harmful but may complicate debugging.
+
 ---
 
 ## Flashing
@@ -246,6 +264,58 @@ ls -l /dev/ttyAMA0
 
 ---
 
+### Building Firmware
+
+The firmware source lives in `firmware/` and is built with [PlatformIO](https://platformio.org/). WiFi credentials are read from a `.env` file in the repo root (gitignored) so they never end up in version control.
+
+#### 1. Install PlatformIO
+
+```bash
+uv tool install platformio
+```
+
+> PlatformIO's venv may be missing `pip`, which causes package install failures. If you see `No module named pip`, fix it with:
+> ```bash
+> $(uv tool dir)/platformio/bin/python -m ensurepip
+> ```
+
+#### 2. Configure WiFi credentials
+
+```bash
+make setup-env
+```
+
+This copies `.env.sample` → `.env` and prompts you interactively:
+
+```
+  WIFI_SSID []: MyNetwork
+  WIFI_PASS: ********
+```
+
+The password input is hidden. To reconfigure, delete `.env` and run again.
+
+> **Tip:** You can use your laptop as a WiFi hotspot so the ESP32 and your workstation are on the same network:
+> ```bash
+> # Linux
+> nmcli device wifi hotspot ssid ROSS password <pass>
+> ```
+
+#### 3. Build
+
+```bash
+cd firmware
+pio run
+```
+
+Output binaries:
+| File | Path |
+|------|------|
+| Application | `firmware/.pio/build/esp32cam/firmware.bin` |
+| Bootloader | `firmware/.pio/build/esp32cam/bootloader.bin` |
+| Partition table | `firmware/.pio/build/esp32cam/partitions.bin` |
+
+---
+
 ### Flashing Sequence
 
 The ESP32 enters flash mode when **GPIO 0 is held LOW during a reset**. The Raspberry Pi drives GPIO 17 (wired to ESP32 GPIO 0) to select the boot mode. The ESP32-CAM does not expose an RST pin on its header, so the RST button on the board must be pressed manually.
@@ -280,18 +350,17 @@ pinctrl set 17 ip       # ip = input (floating)
 The script `ross/flash.py` handles GPIO 0 control and runs esptool automatically. You only need to press the RST button when prompted — the script waits for you then handles everything else. See [flash.py](#automated-script-rossflashpy) below for details.
 
 ```bash
-# Flash a single binary
-uv run python ross/flash.py firmware.bin
+# Flash the application binary (writes to default address 0x10000)
+uv run python ross/flash.py firmware/.pio/build/esp32cam/firmware.bin
 
 # Erase flash first, then flash
-uv run python ross/flash.py --erase firmware.bin
+uv run python ross/flash.py --erase firmware/.pio/build/esp32cam/firmware.bin
 
-# Flash an Arduino/PlatformIO multi-partition build
+# Flash all partitions (bootloader + partition table + application)
 uv run python ross/flash.py \
-  0x1000:bootloader.bin \
-  0x8000:partitions.bin \
-  0xe000:boot_app0.bin \
-  0x10000:firmware.bin
+  0x1000:firmware/.pio/build/esp32cam/bootloader.bin \
+  0x8000:firmware/.pio/build/esp32cam/partitions.bin \
+  0x10000:firmware/.pio/build/esp32cam/firmware.bin
 
 # Just check chip connectivity
 uv run python ross/flash.py --chip-id
@@ -303,51 +372,48 @@ If you prefer to run `esptool` directly (after manually toggling GPIO 0 as shown
 
 **Confirm chip is detected:**
 ```bash
-uv run esptool --port /dev/ttyAMA0 --baud 115200 chip_id
+uv run esptool --port /dev/ttyAMA0 --baud 115200 chip-id
 ```
 
 **Erase flash (recommended before first flash):**
 ```bash
-uv run esptool --port /dev/ttyAMA0 --baud 460800 erase_flash
+uv run esptool --port /dev/ttyAMA0 --baud 460800 erase-flash
 ```
 
-**Flash a single binary:**
+**Flash the application binary:**
 ```bash
 uv run esptool \
   --port /dev/ttyAMA0 \
   --baud 460800 \
   --chip esp32 \
-  write_flash \
-  --flash_mode dio \
-  --flash_freq 40m \
-  --flash_size detect \
-  0x0 firmware.bin
+  write-flash \
+  --flash-mode dio \
+  --flash-freq 40m \
+  --flash-size detect \
+  0x10000 firmware/.pio/build/esp32cam/firmware.bin
 ```
 
-**Flash an Arduino / PlatformIO build (multiple partitions):**
+**Flash all partitions (PlatformIO build):**
 ```bash
 uv run esptool \
   --port /dev/ttyAMA0 \
   --baud 460800 \
   --chip esp32 \
-  write_flash \
-  --flash_mode dio \
-  --flash_freq 40m \
-  --flash_size detect \
-  0x1000  bootloader.bin \
-  0x8000  partitions.bin \
-  0xe000  boot_app0.bin \
-  0x10000 firmware.bin
+  write-flash \
+  --flash-mode dio \
+  --flash-freq 40m \
+  --flash-size detect \
+  0x1000  firmware/.pio/build/esp32cam/bootloader.bin \
+  0x8000  firmware/.pio/build/esp32cam/partitions.bin \
+  0x10000 firmware/.pio/build/esp32cam/firmware.bin
 ```
 
 | Argument | Meaning |
 |----------|---------|
 | `--baud 460800` | Fast but reliable baud rate |
-| `--flash_mode dio` | Dual I/O — correct for AI-Thinker ESP32-CAM |
-| `--flash_freq 40m` | 40 MHz flash clock |
-| `--flash_size detect` | Auto-detect (typically 4MB) |
-
-PlatformIO prints the exact addresses and file paths after a build — copy them directly.
+| `--flash-mode dio` | Dual I/O — correct for AI-Thinker ESP32-CAM |
+| `--flash-freq 40m` | 40 MHz flash clock |
+| `--flash-size detect` | Auto-detect (typically 4MB) |
 
 #### Monitor serial output
 
@@ -403,6 +469,8 @@ See [usage examples](#semi-automated-flashing-script) above, or run `uv run pyth
 | Boost converter has no reverse protection | Double-check battery polarity before first power-on |
 | ESP32 not powered during flashing | The 5V wire from RPi Pin 2 powers the ESP32 — ensure it is connected |
 | GPIO 0 floating at boot causes boot loop | Leave GPIO 0 unconnected during normal operation (internal pull-up holds it HIGH) |
+| GPIO 12 HIGH at boot sets flash to 1.8V | Ensure motor driver is unpowered during boot — DRV8833 inputs float LOW when VIN is off |
+| GPIO 2 HIGH at boot blocks download mode | Disconnect IMU if flashing fails — SDA pull-up may hold GPIO 2 HIGH |
 | Motor stall current (1.5 A) exceeds DRV8833 limit (1.2 A) | Avoid sustained stalls |
 | Encoder cable confused with STEMMA QT cable | Both use JST-SH 1mm — label cables |
 | UART TX/RX swapped | RPi TX → ESP RX, RPi RX → ESP TX |

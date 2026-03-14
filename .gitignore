@@ -1,6 +1,9 @@
 # Data
 /data/
 
+# PlatformIO
+.pio/
+
 # Mac OS-specific storage files
 .DS_Store
 

@@ -12,13 +12,14 @@ Wiring assumed (see README § UART Connections for flashing):
     RPi GND     → ESP32 GND
 
 Usage:
-    uv run python ross/flash.py firmware.bin
+    uv run python ross/flash.py firmware.bin              # writes to 0x10000
     uv run python ross/flash.py --erase firmware.bin
     uv run python ross/flash.py 0x1000:bootloader.bin 0x8000:partitions.bin 0x10000:firmware.bin
     uv run python ross/flash.py --chip-id
 """
 
 import argparse
+from pathlib import Path
 import subprocess
 import sys
 import time
@@ -62,7 +63,7 @@ def run_esptool(port: str, extra_args: list[str]) -> int:
 def parse_images(raw: list[str]) -> list[str]:
     """Parse image arguments. Accepts two formats:
 
-    Positional:   firmware.bin            → writes to 0x0
+    Positional:   firmware.bin            → writes to 0x10000 (default app address)
     Addr:file:    0x10000:firmware.bin     → writes to 0x10000
 
     Returns a flat list of [addr, file, addr, file, ...] for esptool.
@@ -71,9 +72,9 @@ def parse_images(raw: list[str]) -> list[str]:
     for arg in raw:
         if ":" in arg:
             addr, path = arg.split(":", 1)
-            result.extend([addr, path])
+            result.extend([addr, str(Path(path).resolve())])
         else:
-            result.extend(["0x0", arg])
+            result.extend(["0x10000", str(Path(arg).resolve())])
     return result
 
 
@@ -93,7 +94,7 @@ def main() -> None:
     parser.add_argument(
         "images", nargs="*", metavar="[ADDR:]FILE",
         help="Firmware images to flash. Use ADDR:FILE for explicit addresses "
-             "(e.g. 0x10000:firmware.bin) or just FILE to flash at 0x0.",
+             "(e.g. 0x1000:bootloader.bin) or just FILE to flash at 0x10000.",
     )
     parser.add_argument(
         "--chip-id", action="store_true",
@@ -140,16 +141,22 @@ def main() -> None:
             if rc != 0:
                 sys.exit(rc)
 
+            if args.images:
+                # erase_flash resets the chip, so we need to re-enter flash mode
+                print()
+                input("  Press RST on the ESP32-CAM again, then press Enter here... ")
+                print()
+
         if args.images:
             print()
             image_args = parse_images(args.images)
             rc = run_esptool(port, [
                 "--baud", baud,
                 "--chip", "esp32",
-                "write_flash",
-                "--flash_mode", FLASH_MODE,
-                "--flash_freq", FLASH_FREQ,
-                "--flash_size", "detect",
+                "write-flash",
+                "--flash-mode", FLASH_MODE,
+                "--flash-freq", FLASH_FREQ,
+                "--flash-size", "detect",
                 *image_args,
             ])
             if rc != 0:
