@@ -20,6 +20,7 @@ dependencies = [
     "loguru",
     "python-dotenv",
     "ruff",
+    "smbus2>=0.6.0",
 ]
 requires-python = "~=3.12.0"
 
