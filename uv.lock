@@ -327,10 +327,15 @@ dependencies = [
     { name = "esptool" },
     { name = "loguru" },
     { name = "opencv-python" },
+    { name = "pyserial" },
     { name = "python-dotenv" },
-    { name = "ruff" },
     { name = "smbus2" },
     { name = "zeroconf" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "ruff" },
 ]
 
 [package.metadata]
@@ -338,11 +343,13 @@ requires-dist = [
     { name = "esptool" },
     { name = "loguru" },
     { name = "opencv-python", specifier = ">=4.8" },
+    { name = "pyserial" },
     { name = "python-dotenv" },
-    { name = "ruff" },
+    { name = "ruff", marker = "extra == 'dev'" },
     { name = "smbus2", specifier = ">=0.6.0" },
     { name = "zeroconf", specifier = ">=0.80" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "ruff"

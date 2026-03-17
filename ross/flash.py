@@ -24,6 +24,9 @@ import subprocess
 import sys
 import time
 
+from ross.gpio import output_low as gpio_output_low
+from ross.gpio import release as gpio_release
+
 # ── Defaults ───────────────────────────────────────────────────────────────────
 
 DEFAULT_BOOT_GPIO = 17
@@ -31,19 +34,6 @@ DEFAULT_PORT = "/dev/ttyAMA0"
 DEFAULT_BAUD = "460800"
 FLASH_MODE = "dio"
 FLASH_FREQ = "40m"
-
-# ── GPIO helpers (uses pinctrl, no extra libraries) ────────────────────────────
-
-
-def gpio_output_low(pin: int) -> None:
-    """Drive a GPIO pin LOW (output mode, drive low)."""
-    subprocess.run(["pinctrl", "set", str(pin), "op", "dl"], check=True)
-
-
-def gpio_release(pin: int) -> None:
-    """Release a GPIO pin back to input (high-impedance). Internal pull-up on
-    ESP32 GPIO 0 will restore HIGH."""
-    subprocess.run(["pinctrl", "set", str(pin), "ip"], check=True)
 
 
 # ── esptool wrappers ──────────────────────────────────────────────────────────

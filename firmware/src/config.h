@@ -24,3 +24,13 @@
 // PWM settings
 #define MOTOR_PWM_FREQ 20000  // 20 kHz — above audible range
 #define MOTOR_PWM_RES  8      // 8-bit resolution (0–255)
+
+// WiFi
+#define WIFI_MAX_RETRIES   80       // Total connection attempts before reboot
+#define WIFI_RETRY_MS      500      // Delay between retries
+
+// Serial
+#define SERIAL_BUF_SIZE    64       // Serial command buffer length
+
+// Stream
+#define STREAM_FRAME_MIN_MS 30      // ~30fps cap on MJPEG stream

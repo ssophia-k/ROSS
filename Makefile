@@ -53,7 +53,7 @@ fuel: ## Monitor battery via fuel gauge
 	uv run $(REPO_ROOT)/ross/fuel_gauge.py --watch $(ARGS)
 
 ## Development
-.PHONY: sync lint lint-fix
+.PHONY: clean sync lint lint-fix format
 
 sync: ## Install Python dependencies
 	uv sync
@@ -63,6 +63,13 @@ lint: ## Lint Python code
 
 lint-fix: ## Lint and auto-fix Python code
 	uv run ruff check --fix $(REPO_ROOT)/ross/
+
+format: ## Format Python code
+	uv run ruff format $(REPO_ROOT)/ross/
+
+clean: ## Remove build artifacts
+	rm -rf $(FW_DIR)/.pio
+	find $(REPO_ROOT) -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 ## Setup
 .PHONY: setup-env

@@ -18,13 +18,16 @@ classifiers = [
 dependencies = [
     "esptool",
     "loguru",
+    "pyserial",
     "python-dotenv",
-    "ruff",
     "smbus2>=0.6.0",
     "opencv-python>=4.8",
     "zeroconf>=0.80",
 ]
 requires-python = "~=3.12.0"
+
+[project.optional-dependencies]
+dev = ["ruff"]
 
 
 [tool.ruff]

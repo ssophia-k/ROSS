@@ -107,6 +107,8 @@ void handle_stream() {
     client.println();
 
     while (client.connected()) {
+        unsigned long frame_start = millis();
+
         camera_frame frame = camera_capture();
         if (!frame.buf) continue;
 
@@ -114,6 +116,12 @@ void handle_stream() {
         client.write(frame.buf, frame.len);
         client.println();
         camera_release(frame);
+
+        // Cap frame rate to avoid starving other HTTP handlers
+        unsigned long elapsed = millis() - frame_start;
+        if (elapsed < STREAM_FRAME_MIN_MS) {
+            delay(STREAM_FRAME_MIN_MS - elapsed);
+        }
     }
 }
 
@@ -162,20 +170,22 @@ void setup() {
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     Serial.printf("[WiFi] Connecting to %s", WIFI_SSID);
     int wifi_attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && wifi_attempts < 40) {
-        delay(500);
+    while (WiFi.status() != WL_CONNECTED && wifi_attempts < WIFI_MAX_RETRIES) {
+        delay(WIFI_RETRY_MS);
         Serial.print(".");
         wifi_attempts++;
+        // Reconnect halfway through in case the radio is stuck
+        if (wifi_attempts == WIFI_MAX_RETRIES / 2) {
+            Serial.println("\n[WiFi] Retrying...");
+            WiFi.disconnect();
+            delay(1000);
+            WiFi.begin(WIFI_SSID, WIFI_PASS);
+        }
     }
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("\n[WiFi] Failed — retrying...");
-        WiFi.disconnect();
-        delay(1000);
-        WiFi.begin(WIFI_SSID, WIFI_PASS);
-        while (WiFi.status() != WL_CONNECTED) {
-            delay(500);
-            Serial.print(".");
-        }
+        Serial.println("\n[WiFi] Failed after max retries — rebooting in 5s");
+        delay(5000);
+        ESP.restart();
     }
     Serial.printf("\n[WiFi] Connected — http://%s\n", WiFi.localIP().toString().c_str());
 
@@ -199,7 +209,7 @@ void setup() {
 
 // ── Serial Command Parser ────────────────────────────────────────────────────
 
-static char serial_buf[32];
+static char serial_buf[SERIAL_BUF_SIZE];
 static uint8_t serial_pos = 0;
 
 void handle_serial_line(const char* line) {
@@ -235,6 +245,10 @@ void poll_serial() {
             }
         } else if (serial_pos < sizeof(serial_buf) - 1) {
             serial_buf[serial_pos++] = c;
+        } else {
+            // Buffer full — discard line and warn
+            serial_pos = 0;
+            Serial.println("ERR command too long");
         }
     }
 }

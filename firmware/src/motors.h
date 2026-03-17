@@ -30,8 +30,11 @@ inline void motors_init() {
 }
 
 // Set motor speeds. Positive = forward, negative = reverse, 0 = coast.
-// Range: -255 to 255.
+// Range: -255 to 255 (clamped).
 inline void motors_set(int left, int right) {
+    left  = constrain(left,  -255, 255);
+    right = constrain(right, -255, 255);
+
     // Left motor
     if (left >= 0) {
         ledcWrite(CH_AIN1, left);

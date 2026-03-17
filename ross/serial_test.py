@@ -14,18 +14,13 @@ import subprocess
 import sys
 import time
 
+from ross.gpio import output_low as gpio_output_low
+from ross.gpio import release as gpio_release
+
 DEFAULT_PORT = "/dev/ttyAMA0"
 DEFAULT_BAUD = 115200
 DEFAULT_GPIO = 17
 LISTEN_SECONDS = 3
-
-
-def gpio_output_low(pin: int) -> None:
-    subprocess.run(["pinctrl", "set", str(pin), "op", "dl"], check=True)
-
-
-def gpio_release(pin: int) -> None:
-    subprocess.run(["pinctrl", "set", str(pin), "ip"], check=True)
 
 
 def main() -> None:
