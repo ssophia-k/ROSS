@@ -16,6 +16,25 @@ help: ## Show this help message
 		     /^## / {gsub("^## ", ""); print "\n\033[1;35m" $$0 "\033[0m"}; \
 		     /^[a-zA-Z_-]+:/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
+FW_BIN := $(REPO_ROOT)/firmware/.pio/build/esp32cam/firmware.bin
+
+## Build & Flash
+.PHONY: build flash deploy
+
+build: ## Build firmware
+	cd $(REPO_ROOT)/firmware && pio run
+
+flash: ## Flash firmware to ESP32-CAM (prompts for RST button)
+	uv run python $(REPO_ROOT)/ross/flash.py $(FW_BIN)
+
+deploy: build flash ## Build + flash in one step
+
+## Serial
+.PHONY: serial
+
+serial: ## Monitor ESP32 serial output (exit: Ctrl-A k)
+	screen /dev/ttyAMA0 115200
+
 ## Setup
 .PHONY: setup-env
 

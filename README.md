@@ -17,13 +17,13 @@ flowchart TD
     subgraph Robot["🤖 Robot (Mobile)"]
         BAT["🔋 Battery\n3.7V LiIon"]
         BOOST["Boost Converter\n3.7V → 6V"]
-        ESP["ESP32-CAM\n← powered directly\nfrom battery 3.7V"]
+        ESP["ESP32-CAM\n← powered from\nboost converter 6V"]
         IMU["IMU\nLSM6DS3TR-C"]
         DRV["Motor Driver\nDRV8833"]
         ML["Left Motor"]
         MR["Right Motor"]
-        BAT -->|"3.7V → 5V pin"| ESP
         BAT -->|"3.7V → VIN"| BOOST
+        BOOST -->|"6V → 5V pin"| ESP
         BOOST -->|"6V → VIN"| DRV
         ESP <-->|"I2C"| IMU
         ESP -->|"PWM"| DRV
@@ -145,18 +145,16 @@ Source files in `firmware/src/`:
 
 #### Power
 
-The battery feeds two rails directly:
+The battery feeds the boost converter, which supplies 6V to both the ESP32-CAM and the motor driver:
 
-- **3.7 V** → ESP32-CAM **5V pin** (the onboard AMS1117 regulates down to 3.3V)
+- **3.7 V** → Boost Converter **VIN** → **6V out** → ESP32-CAM **5V pin** (the onboard AMS1117 regulates down to 3.3V)
 - **3.7 V** → Boost Converter **VIN** → **6V out** → Motor Driver **VIN**
-
-The battery's JST-PH connector has a single output, so the positive lead must be split — solder a short Y-harness or use a small terminal block.
 
 | From | To | Wire |
 |------|----|------|
 | Battery JST-PH **+** (Red) | Boost Converter **VIN** | Red |
-| Battery JST-PH **+** (Red) | ESP32-CAM **5V pin** | Red — Y-tap |
 | Battery JST-PH **–** (Black) | Common ground bus | Black |
+| Boost Converter **VOUT** | ESP32-CAM **5V pin** | Red — 6V rail |
 | Boost Converter **VOUT** | DRV8833 **VIN** | Red — 6V rail |
 | DRV8833 **GND** | Common ground bus | Black |
 | ESP32-CAM **GND** | Common ground bus | Black |
@@ -543,7 +541,7 @@ See [usage examples](#semi-automated-flashing-script) above, or run `uv run pyth
 |-----------|------------|-------------|
 | Battery | — | 3.7–4.2V output |
 | Boost Converter | 3.7V in | 6V out |
-| ESP32-CAM | 3.7V (5V pin, direct from battery) | 3.3V GPIO |
+| ESP32-CAM | 6V (5V pin, from boost converter) | 3.3V GPIO |
 | IMU LSM6DS3TR-C | 3.3V (from ESP32) | 3.3V I2C |
 | DRV8833 Motor Driver | 6V (from boost) | 3.3V inputs |
 | Motors × 2 | 6V (from DRV8833) | — |

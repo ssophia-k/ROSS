@@ -15,6 +15,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <WebServer.h>
 #include <Wire.h>
 #include <Adafruit_LSM6DS3TRC.h>
@@ -136,13 +137,34 @@ void setup() {
     setup_imu();
 
     // WiFi
+    WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     Serial.printf("[WiFi] Connecting to %s", WIFI_SSID);
-    while (WiFi.status() != WL_CONNECTED) {
+    int wifi_attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && wifi_attempts < 40) {
         delay(500);
         Serial.print(".");
+        wifi_attempts++;
+    }
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("\n[WiFi] Failed — retrying...");
+        WiFi.disconnect();
+        delay(1000);
+        WiFi.begin(WIFI_SSID, WIFI_PASS);
+        while (WiFi.status() != WL_CONNECTED) {
+            delay(500);
+            Serial.print(".");
+        }
     }
     Serial.printf("\n[WiFi] Connected — http://%s\n", WiFi.localIP().toString().c_str());
+
+    // mDNS
+    if (MDNS.begin("ross")) {
+        MDNS.addService("http", "tcp", 80);
+        Serial.println("[mDNS] ross.local");
+    } else {
+        Serial.println("[mDNS] Failed to start");
+    }
 
     // HTTP routes
     server.on("/",      HTTP_GET, handle_root);

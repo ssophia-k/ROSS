@@ -25,6 +25,13 @@
 #define PCLK_GPIO_NUM   22
 
 bool camera_init() {
+    // Power-cycle the camera to ensure clean SCCB detection
+    pinMode(PWDN_GPIO_NUM, OUTPUT);
+    digitalWrite(PWDN_GPIO_NUM, HIGH);  // Power down
+    delay(100);
+    digitalWrite(PWDN_GPIO_NUM, LOW);   // Power up
+    delay(100);
+
     camera_config_t config;
     config.ledc_channel = LEDC_CHANNEL_4;  // Channels 0-3 used by motors
     config.ledc_timer   = LEDC_TIMER_1;
@@ -44,7 +51,7 @@ bool camera_init() {
     config.pin_sccb_scl = SIOC_GPIO_NUM;
     config.pin_pwdn     = PWDN_GPIO_NUM;
     config.pin_reset    = RESET_GPIO_NUM;
-    config.xclk_freq_hz = 20000000;
+    config.xclk_freq_hz = 10000000;  // 10 MHz — more reliable SCCB detection
     config.pixel_format = PIXFORMAT_JPEG;
     config.grab_mode    = CAMERA_GRAB_LATEST;
 
