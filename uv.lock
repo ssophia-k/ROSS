@@ -326,14 +326,10 @@ source = { editable = "." }
 dependencies = [
     { name = "esptool" },
     { name = "loguru" },
+    { name = "opencv-python" },
     { name = "python-dotenv" },
     { name = "ruff" },
     { name = "smbus2" },
-]
-
-[package.optional-dependencies]
-teleop = [
-    { name = "opencv-python" },
     { name = "zeroconf" },
 ]
 
@@ -341,13 +337,12 @@ teleop = [
 requires-dist = [
     { name = "esptool" },
     { name = "loguru" },
-    { name = "opencv-python", marker = "extra == 'teleop'", specifier = ">=4.8" },
+    { name = "opencv-python", specifier = ">=4.8" },
     { name = "python-dotenv" },
     { name = "ruff" },
     { name = "smbus2", specifier = ">=0.6.0" },
-    { name = "zeroconf", marker = "extra == 'teleop'", specifier = ">=0.80" },
+    { name = "zeroconf", specifier = ">=0.80" },
 ]
-provides-extras = ["teleop"]
 
 [[package]]
 name = "ruff"

@@ -29,6 +29,7 @@
 WebServer server(80);
 Adafruit_LSM6DS3TRC imu;
 bool imu_ok = false;
+bool serial_mode = false;
 
 // ── IMU ──────────────────────────────────────────────────────────────────────
 
@@ -126,6 +127,26 @@ void setup() {
     // Motors first (ensure stopped)
     motors_init();
 
+    // Wait briefly for serial handshake — if received, enter serial-only mode
+    // (skips IMU and WiFi so GPIO 3 stays available for UART RX)
+    Serial.println("[ROSS] Send 'S' within 2s for serial mode...");
+    unsigned long deadline = millis() + 2000;
+    while (millis() < deadline) {
+        if (Serial.available()) {
+            char c = Serial.read();
+            if (c == 'S' || c == 's') {
+                // Drain remaining bytes (e.g. newline)
+                delay(50);
+                while (Serial.available()) Serial.read();
+                serial_mode = true;
+                Serial.println("[ROSS] Serial mode — UART teleop active");
+                Serial.println("[ROSS] Commands: M <left> <right> | S (stop) | I (IMU off)");
+                return;
+            }
+        }
+        delay(10);
+    }
+
     // Camera
     if (!camera_init()) {
         Serial.println("[CAM] Init failed — halting");
@@ -133,7 +154,7 @@ void setup() {
     }
     Serial.println("[CAM] Ready");
 
-    // IMU
+    // IMU (claims GPIO 3 — UART RX no longer available)
     setup_imu();
 
     // WiFi
@@ -176,6 +197,54 @@ void setup() {
     Serial.println("[HTTP] Server started");
 }
 
+// ── Serial Command Parser ────────────────────────────────────────────────────
+
+static char serial_buf[32];
+static uint8_t serial_pos = 0;
+
+void handle_serial_line(const char* line) {
+    if (line[0] == 'M' || line[0] == 'm') {
+        // Motor command: M <left> <right>
+        int left = 0, right = 0;
+        if (sscanf(line + 1, "%d %d", &left, &right) == 2) {
+            left = constrain(left, -255, 255);
+            right = constrain(right, -255, 255);
+            motors_set(left, right);
+            Serial.printf("OK M %d %d\n", left, right);
+        } else {
+            Serial.println("ERR usage: M <left> <right>");
+        }
+    } else if (line[0] == 'S' || line[0] == 's') {
+        motors_stop();
+        Serial.println("OK S");
+    } else if (line[0] == '?') {
+        Serial.println("OK ROSS serial mode");
+    } else {
+        Serial.println("ERR unknown command");
+    }
+}
+
+void poll_serial() {
+    while (Serial.available()) {
+        char c = Serial.read();
+        if (c == '\n' || c == '\r') {
+            if (serial_pos > 0) {
+                serial_buf[serial_pos] = '\0';
+                handle_serial_line(serial_buf);
+                serial_pos = 0;
+            }
+        } else if (serial_pos < sizeof(serial_buf) - 1) {
+            serial_buf[serial_pos++] = c;
+        }
+    }
+}
+
+// ── Main Loop ────────────────────────────────────────────────────────────────
+
 void loop() {
-    server.handleClient();
+    if (serial_mode) {
+        poll_serial();
+    } else {
+        server.handleClient();
+    }
 }

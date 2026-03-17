@@ -5,6 +5,9 @@ SHELL := /bin/bash
 REPO_ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 ENV_SAMPLE := $(REPO_ROOT)/.env.sample
 ENV_DST    := $(REPO_ROOT)/.env
+FW_DIR     := $(REPO_ROOT)/firmware
+FW_BIN     := $(FW_DIR)/.pio/build/esp32cam/firmware.bin
+FW_SRC     := $(wildcard $(FW_DIR)/src/*.cpp $(FW_DIR)/src/*.h $(FW_DIR)/platformio.ini)
 
 ## Help
 .PHONY: help
@@ -16,24 +19,50 @@ help: ## Show this help message
 		     /^## / {gsub("^## ", ""); print "\n\033[1;35m" $$0 "\033[0m"}; \
 		     /^[a-zA-Z_-]+:/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-FW_BIN := $(REPO_ROOT)/firmware/.pio/build/esp32cam/firmware.bin
-
 ## Build & Flash
-.PHONY: build flash deploy
+.PHONY: flash deploy
 
-build: ## Build firmware
-	cd $(REPO_ROOT)/firmware && pio run
+$(FW_BIN): $(FW_SRC)
+	cd $(FW_DIR) && pio run
 
-flash: ## Flash firmware to ESP32-CAM (prompts for RST button)
+build: $(FW_BIN) ## Build firmware (skips if unchanged)
+
+flash: $(FW_BIN) ## Flash firmware (builds first if needed, prompts for RST)
 	uv run python $(REPO_ROOT)/ross/flash.py $(FW_BIN)
 
-deploy: build flash ## Build + flash in one step
+deploy: flash ## Build + flash in one step
 
-## Serial
-.PHONY: serial
+## Teleop
+.PHONY: teleop serial-teleop
+
+teleop: $(FW_BIN) ## WiFi teleop — build, flash, video + keyboard control
+	uv run python $(REPO_ROOT)/ross/flash.py $(FW_BIN)
+	uv run $(REPO_ROOT)/ross/teleop.py $(ARGS)
+
+serial-teleop: $(FW_BIN) ## Serial teleop — build, flash, keyboard motor control
+	uv run python $(REPO_ROOT)/ross/flash.py $(FW_BIN)
+	uv run $(REPO_ROOT)/ross/serial_teleop.py $(ARGS)
+
+## Monitoring
+.PHONY: serial fuel
 
 serial: ## Monitor ESP32 serial output (exit: Ctrl-A k)
 	screen /dev/ttyAMA0 115200
+
+fuel: ## Monitor battery via fuel gauge
+	uv run $(REPO_ROOT)/ross/fuel_gauge.py --watch $(ARGS)
+
+## Development
+.PHONY: sync lint lint-fix
+
+sync: ## Install Python dependencies
+	uv sync
+
+lint: ## Lint Python code
+	uv run ruff check $(REPO_ROOT)/ross/
+
+lint-fix: ## Lint and auto-fix Python code
+	uv run ruff check --fix $(REPO_ROOT)/ross/
 
 ## Setup
 .PHONY: setup-env
