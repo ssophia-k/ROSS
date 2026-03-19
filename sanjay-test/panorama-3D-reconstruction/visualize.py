@@ -5,6 +5,9 @@ Usage:
   python visualize.py output/scene_360.ply   # loads point cloud
 """
 
+# DOESNT WORK ON SURFACE (SNAPDRAGON) BC OF SUPPORT ISSUES
+# OPEN IN 3D VIEWER APP INSTEAD
+
 import open3d as o3d
 import sys
 import os
