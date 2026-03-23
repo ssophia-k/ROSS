@@ -27,3 +27,7 @@
 #define MOTOR_PWM_RES   8    // 8-bit → 0–255
 
 #define MOTOR_TIMEOUT_MS 500  // Auto-stop if no command received
+
+// ── IMU (LSM6DS3 over I2C) ──────────────────────────────────────────────────
+#define PIN_IMU_SDA  2   // GPIO 2 — strapping pin, weak pull-up OK
+#define PIN_IMU_SCL  3   // GPIO 3 (UART RX) — repurposed after boot

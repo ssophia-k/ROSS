@@ -12,6 +12,7 @@
 
 #include "camera.h"
 #include "config.h"
+#include "imu.h"
 #include "motors.h"
 
 // ── Globals ──────────────────────────────────────────────────────────────────
@@ -77,6 +78,21 @@ void handle_stop() {
     server.send(200, "text/plain", "ok");
 }
 
+void handle_imu() {
+    imu_data d = imu_read();
+    if (!d.valid) {
+        server.send(503, "text/plain", "imu not available");
+        return;
+    }
+    char buf[256];
+    snprintf(buf, sizeof(buf),
+        "{\"accel\":[%.2f,%.2f,%.2f],\"gyro\":[%.2f,%.2f,%.2f],\"temp\":%.1f}",
+        d.accel_x, d.accel_y, d.accel_z,
+        d.gyro_x, d.gyro_y, d.gyro_z,
+        d.temp);
+    server.send(200, "application/json", buf);
+}
+
 // ── Stream Task (runs on core 0) ─────────────────────────────────────────────
 
 void stream_task(void *) {
@@ -137,10 +153,16 @@ void setup() {
     // Motors
     motors_init();
 
+    // IMU (I2C on GPIO 2/3 — GPIO 3 is UART RX, safe to repurpose after boot)
+    if (!imu_init()) {
+        Serial.println("[IMU] Continuing without IMU");
+    }
+
     // Command server (port 80)
     server.on("/",       HTTP_GET, handle_root);
     server.on("/motor",  HTTP_GET, handle_motor);
     server.on("/stop",   HTTP_GET, handle_stop);
+    server.on("/imu",    HTTP_GET, handle_imu);
     server.begin();
     Serial.println("[HTTP] Command server started on :80");
 
