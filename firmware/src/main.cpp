@@ -1,10 +1,8 @@
 /*
  * ROSS ESP32-CAM Firmware
  *
- * Streams MJPEG video over WiFi.
- *
- * Additional hardware (IMU, motors) is wired but not yet enabled
- * in firmware — this build validates camera + WiFi only.
+ * Streams MJPEG video and accepts motor commands over WiFi.
+ * Teleoperation via HTTP: /motor?l=X&r=Y and /stop.
  */
 
 #include <Arduino.h>
@@ -14,17 +12,21 @@
 
 #include "camera.h"
 #include "config.h"
+#include "motors.h"
 
 // ── Globals ──────────────────────────────────────────────────────────────────
 
-WebServer server(80);
+WebServer server(80);        // Commands: /, /motor, /stop
+WebServer stream_srv(81);   // MJPEG stream on separate port
+unsigned long last_motor_cmd = 0;
 
 // ── HTTP Handlers ────────────────────────────────────────────────────────────
 
 void handle_root() {
+    String ip = WiFi.localIP().toString();
     String html = "<html><body>"
                   "<h1>ROSS</h1>"
-                  "<p><a href=\"/stream\">MJPEG Stream</a></p>"
+                  "<p><a href=\"http://" + ip + ":81/stream\">MJPEG Stream</a></p>"
                   "</body></html>";
     server.send(200, "text/html", html);
 }
@@ -32,7 +34,7 @@ void handle_root() {
 // ── MJPEG Stream ─────────────────────────────────────────────────────────────
 
 void handle_stream() {
-    WiFiClient client = server.client();
+    WiFiClient client = stream_srv.client();
     client.println("HTTP/1.1 200 OK");
     client.println("Content-Type: multipart/x-mixed-replace; boundary=frame");
     client.println();
@@ -52,6 +54,38 @@ void handle_stream() {
         if (elapsed < STREAM_FRAME_MIN_MS) {
             delay(STREAM_FRAME_MIN_MS - elapsed);
         }
+    }
+}
+
+// ── Motor HTTP Handlers ─────────────────────────────────────────────────────
+
+void handle_motor() {
+    if (!server.hasArg("l") || !server.hasArg("r")) {
+        server.send(400, "text/plain", "need l and r");
+        return;
+    }
+    int left  = server.arg("l").toInt();
+    int right = server.arg("r").toInt();
+    motors_set(left, right);
+    last_motor_cmd = millis();
+    server.send(200, "text/plain", "ok");
+}
+
+void handle_stop() {
+    motors_stop();
+    last_motor_cmd = 0;
+    server.send(200, "text/plain", "ok");
+}
+
+// ── Stream Task (runs on core 0) ─────────────────────────────────────────────
+
+void stream_task(void *) {
+    stream_srv.on("/stream", HTTP_GET, handle_stream);
+    stream_srv.begin();
+    Serial.println("[HTTP] Stream server started on :81");
+    for (;;) {
+        stream_srv.handleClient();
+        vTaskDelay(1);
     }
 }
 
@@ -100,13 +134,26 @@ void setup() {
         Serial.println("[mDNS] Failed to start");
     }
 
-    // HTTP routes
+    // Motors
+    motors_init();
+
+    // Command server (port 80)
     server.on("/",       HTTP_GET, handle_root);
-    server.on("/stream", HTTP_GET, handle_stream);
+    server.on("/motor",  HTTP_GET, handle_motor);
+    server.on("/stop",   HTTP_GET, handle_stop);
     server.begin();
-    Serial.println("[HTTP] Server started");
+    Serial.println("[HTTP] Command server started on :80");
+
+    // Stream server (port 81, on core 0 so it doesn't block commands)
+    xTaskCreatePinnedToCore(stream_task, "stream", 4096, NULL, 1, NULL, 0);
 }
 
 void loop() {
     server.handleClient();
+
+    // Safety: stop motors if no command received recently
+    if (last_motor_cmd > 0 && (millis() - last_motor_cmd) > MOTOR_TIMEOUT_MS) {
+        motors_stop();
+        last_motor_cmd = 0;
+    }
 }

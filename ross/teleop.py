@@ -93,8 +93,8 @@ def run(host: str, speed: int) -> None:
         while True:
             # (Re)connect to stream
             if cap is None or not cap.isOpened():
-                logger.info(f"Connecting to http://{host}/stream ...")
-                cap = cv2.VideoCapture(f"http://{host}/stream")
+                logger.info(f"Connecting to http://{host}:81/stream ...")
+                cap = cv2.VideoCapture(f"http://{host}:81/stream")
                 if not cap.isOpened():
                     img = np.zeros((240, 320, 3), dtype="uint8")
                     cv2.putText(img, "Connecting...", (60, 130), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
