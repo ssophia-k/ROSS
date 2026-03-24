@@ -7,7 +7,7 @@ FW_DIR := $(ROOT)/firmware
 FW_BIN := $(FW_DIR)/.pio/build/esp32cam/firmware.bin
 FW_SRC := $(wildcard $(FW_DIR)/src/*.cpp $(FW_DIR)/src/*.h $(FW_DIR)/platformio.ini)
 
-.PHONY: help build flash serial teleop clean setup-env
+.PHONY: help build flash serial teleop fuel clean setup-env
 
 help: ## Show available targets
 	grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | \
@@ -26,6 +26,9 @@ serial: ## Monitor serial output (Ctrl-A k to exit)
 
 teleop: ## Drive robot with keyboard (WASD) + video
 	QT_QPA_FONTDIR=/usr/share/fonts uv run python $(ROOT)/ross/teleop.py
+
+fuel: ## Monitor battery via fuel gauge
+	uv run python $(ROOT)/ross/fuel_gauge.py --watch $(ARGS)
 
 clean: ## Remove build artifacts
 	rm -rf $(FW_DIR)/.pio
