@@ -1,23 +1,30 @@
-#!/usr/bin/env python3
 """
-Simple Monocular Visual SLAM – main entry-point.
+Simple Monocular Visual-Inertial SLAM (RUN THIS SCRIPT)
 
 Usage
 -----
-    python -m ross.slam.main <video_path> [--focal <F>] [--width <W>] [--height <H>]
+    python -m ross.slam.main <data_dir> [--focal <F>] [--width <W>] [--height <H>]
+
+Expected data_dir layout (Sensor Logger export, unzipped):
+    data_dir/
+        Frames/               ← folder of images from Sensor Logger
+            frame_0.jpg       ← (any image extension)
+            frame_1.jpg
+            ...
+        frames.csv            ← columns: timestamp_iso, seconds_elapsed, path
+        Gyroscope.csv         ← Sensor Logger gyro export
+        Accelerometer.csv     ← Sensor Logger accel export
 
 Pipeline (per frame)
 --------------------
-1. Resize the incoming frame to (W, H).
-2. Extract ORB features and create a Frame object.
-3. Match features between the current and previous frame.
-4. Estimate the relative camera pose via the Fundamental matrix + SVD.
-5. Triangulate 3-D points from the two-view correspondences.
-6. Filter out points with insufficient parallax or behind the camera.
-7. Add surviving points to the global map.
-8. Draw feature tracks on the 2-D display and update the 3-D viewer.
-
-Based on https://learnopencv.com/monocular-slam-in-python/
+1. Load image + timestamp from the Sensor Logger frames folder.
+2. Extract ORB features, create a Frame with its timestamp.
+3. Pre-integrate IMU samples between the last two frame timestamps gives us Delta R, p
+4. Use ΔR as the initial pose prior for the new frame.
+5. Attempt visual feature matching + Fundamental-matrix pose refinement.
+6. If vision succeeds, use visual pose (IMU prior helped initialise it).
+   If vision fails, keep IMU-only pose estimate (graceful fallback).
+7. Triangulate 3-D points, add to map, update displays.
 """
 
 from __future__ import annotations
@@ -31,202 +38,251 @@ from loguru import logger
 
 from ross.slam.display import Display
 from ross.slam.extractor import Frame, denormalize, match_frames, triangulate
+from ross.slam.imu import IMUData
 from ross.slam.pointmap import Map, Point
 
 
-# ---------------------------------------------------------------------------
-# Default camera intrinsics (override via CLI args or the constants below)
-# ---------------------------------------------------------------------------
+# CAMERA INTRINSICS FROM CALIBRATION
 
-# Display / processing resolution
-W = 1920 // 2  # 960
-H = 1080 // 2  # 540
+W = 1920 // 2   # processing width  (960)
+H = 1080 // 2   # processing height (540)
+F = 270         # focal length in pixels (override with --focal)
 
-# Focal length (pixels) – a reasonable guess for dashcam footage
-F = 270
-
-# Build the 3×3 intrinsic matrix  K  and its inverse
-K = np.array([
-    [F, 0, W // 2],
-    [0, F, H // 2],
-    [0, 0, 1],
-], dtype=float)
+K = np.array([[F, 0, W // 2], [0, F, H // 2], [0, 0, 1]], dtype=float)
 Kinv = np.linalg.inv(K)
 
 
-def process_frame(img: np.ndarray, mapp: Map, display: Display) -> None:
-    """Process a single video frame through the SLAM pipeline.
+# Sensor Logger data loader
 
-    Parameters
-    ----------
-    img : np.ndarray
-        Raw BGR frame from the video.
-    mapp : Map
-        Global SLAM map (frames + points).
-    display : Display
-        2-D visualisation window.
+def load_image_sequence(data_dir: Path) -> list[tuple[float, Path]]:
+    """Return a time-sorted list of (seconds_elapsed, image_path) tuples.
+
+    Sensor Logger writes a ``frames.csv`` alongside the image folder.
+    Columns (lowercased): ``seconds_elapsed``, and a path/filename column.
+
+    Falls back to lexicographic sort by filename if no CSV is found.
     """
+    csv_candidates = list(data_dir.glob("frames.csv")) + list(data_dir.glob("Frames.csv"))
+
+    # ── with CSV ────────────────────────────────────────────────────────────
+    if csv_candidates:
+        import pandas as pd
+        df = pd.read_csv(csv_candidates[0])
+        df.columns = [c.strip().lower() for c in df.columns]
+
+        if "seconds_elapsed" not in df.columns:
+            raise ValueError(f"frames.csv missing 'seconds_elapsed' column. Got: {list(df.columns)}")
+
+        # Find the column that contains the image filenames / paths
+        path_col = next(
+            (c for c in df.columns if c not in {"seconds_elapsed", "time", "timestamp"}),
+            None,
+        )
+        if path_col is None:
+            raise ValueError("Cannot identify image path column in frames.csv")
+
+        rows = []
+        frames_dir = data_dir / "Frames"
+        for _, row in df.iterrows():
+            img_name = Path(row[path_col]).name
+            # Search the Frames sub-folder first, then data_dir itself
+            for search_dir in [frames_dir, data_dir]:
+                img_path = search_dir / img_name
+                if img_path.exists():
+                    rows.append((float(row["seconds_elapsed"]), img_path))
+                    break
+
+        if rows:
+            return sorted(rows, key=lambda x: x[0])
+        logger.warning("frames.csv found but no matching images located – falling back to glob")
+
+    # ── without CSV (lexicographic fallback) ────────────────────────────────
+    extensions = ("*.jpg", "*.jpeg", "*.png")
+    all_imgs: list[Path] = []
+    for ext in extensions:
+        all_imgs.extend((data_dir / "Frames").glob(ext))
+        all_imgs.extend(data_dir.glob(ext))
+
+    if not all_imgs:
+        raise FileNotFoundError(f"No images found in {data_dir}")
+
+    all_imgs = sorted(set(all_imgs))
+    logger.warning("No frames.csv found – using uniform 20 fps timestamps")
+    return [(i / 20.0, p) for i, p in enumerate(all_imgs)]
+
+
+# Processing per frame
+
+def process_frame(
+    img: np.ndarray,
+    timestamp: float,
+    mapp: Map,
+    display: Display,
+    imu: IMUData | None,
+) -> None:
+    """Process one image frame through the visual-inertial SLAM pipeline."""
     img = cv2.resize(img, (W, H))
+    frame = Frame(mapp, img, K, timestamp=timestamp)
 
-    # Create a new Frame (automatically registers with the map)
-    frame = Frame(mapp, img, K)
-
-    # Need at least two frames to do anything
     if frame.id == 0:
         display.paint(img)
         return
 
-    # Current and previous frame
-    f1 = mapp.frames[-1]
-    f2 = mapp.frames[-2]
+    f1 = mapp.frames[-1]   # current
+    f2 = mapp.frames[-2]   # previous
 
-    # ------------------------------------------------------------------
-    # Feature matching + relative-pose estimation
-    # ------------------------------------------------------------------
+    # 1. IMU pre-integration gives pose prior
+    imu_pose_used = False
+
+    if imu is not None and f2.timestamp is not None and f1.timestamp is not None:
+        delta = imu.preintegrate(f2.timestamp, f1.timestamp)
+
+        if delta.n_samples > 0:
+            # Build a 4×4 incremental pose from IMU ΔR and Δp
+            imu_Rt = np.eye(4)
+            imu_Rt[:3, :3] = delta.dR
+            imu_Rt[:3,  3] = delta.dp          # small in loosely-coupled mode
+
+            # Initialise f1's pose with the IMU prior
+            f1.pose = imu_Rt @ f2.pose
+            imu_pose_used = True
+
+
+    # 2. Visual feature matching + pose refinement
+    visual_ok = False
     try:
         idx1, idx2, Rt = match_frames(f1, f2)
+
+        if imu_pose_used:
+            # IMU rotation is more reliable than fundamental matrix for pure rotation.
+            # Use IMU rotation, but take translation from vision.
+            visual_pose = Rt @ f2.pose
+            imu_pose    = imu_Rt @ f2.pose
+
+            f1.pose = visual_pose.copy()
+            f1.pose[:3, :3] = imu_pose[:3, :3]   # ← swap in IMU rotation
+        else:
+            f1.pose = Rt @ f2.pose
+
+        visual_ok = True
     except (AssertionError, Exception) as exc:
-        logger.warning(f"Frame {frame.id}: match_frames failed – {exc}")
-        display.paint(img)
-        return
+        if imu_pose_used:
+            logger.warning(
+                f"Frame {frame.id}: visual matching failed ({exc}) – "
+                "keeping IMU-only pose"
+            )
+        else:
+            logger.warning(f"Frame {frame.id}: match_frames failed – {exc}")
+            display.paint(img)
+            return
 
-    # Accumulate the pose:  X_f1 = Rt · X_f2
-    f1.pose = Rt @ f2.pose
+    # 3. Triangulation (only when vision succeeded)
+    if visual_ok:
+        pts4d = triangulate(f1.pose, f2.pose, f1.pts[idx1], f2.pts[idx2])
 
-    # ------------------------------------------------------------------
-    # Triangulation  →  3-D map points (homogeneous)
-    # ------------------------------------------------------------------
-    pts4d = triangulate(f1.pose, f2.pose, f1.pts[idx1], f2.pts[idx2])
+        orig_w   = pts4d[:, 3].copy()
+        good_w   = np.abs(orig_w) > 1e-6
+        pts4d[good_w] /= pts4d[good_w, 3:4]
+        good_pts = good_w & (np.abs(orig_w) > 0.005) & (pts4d[:, 2] > 0)
 
-    # Check W *before* normalising so we can use it as a parallax filter.
-    # W≈0 means the rays are nearly parallel (degenerate triangulation).
-    orig_w = pts4d[:, 3].copy()
-    good_w = np.abs(orig_w) > 1e-6
+        for i, p in enumerate(pts4d):
+            if not good_pts[i]:
+                continue
+            pt = Point(mapp, p)
+            pt.add_observation(f1, idx1[i])
+            pt.add_observation(f2, idx2[i])
 
-    # Normalise only well-conditioned points to avoid divide-by-zero.
-    pts4d[good_w] /= pts4d[good_w, 3:4]
+        # Draw feature tracks
+        for pt1, pt2 in zip(f1.pts[idx1], f2.pts[idx2]):
+            u1, v1 = denormalize(K, pt1)
+            u2, v2 = denormalize(K, pt2)
+            cv2.circle(img, (u1, v1), color=(0, 255, 0), radius=3)
+            cv2.line(img, (u1, v1), (u2, v2), color=(255, 0, 0), thickness=1)
 
-    # Reject degenerate (small |W|), low-parallax, or behind-camera points
-    good_pts4d = good_w & (np.abs(orig_w) > 0.005) & (pts4d[:, 2] > 0)
-
-    for i, p in enumerate(pts4d):
-        if not good_pts4d[i]:
-            continue
-        pt = Point(mapp, p)
-        pt.add_observation(f1, idx1[i])
-        pt.add_observation(f2, idx2[i])
-
-    # ------------------------------------------------------------------
-    # Draw feature tracks on the 2-D image
-    # ------------------------------------------------------------------
-    for pt1, pt2 in zip(f1.pts[idx1], f2.pts[idx2]):
-        u1, v1 = denormalize(K, pt1)
-        u2, v2 = denormalize(K, pt2)
-        cv2.circle(img, (u1, v1), color=(0, 255, 0), radius=3)
-        cv2.line(img, (u1, v1), (u2, v2), color=(255, 0, 0), thickness=1)
-
-    # Show stats overlay
+    # 4. HUD overlay
+    src_label = "V+I" if (visual_ok and imu_pose_used) else ("V" if visual_ok else "IMU")
     cv2.putText(
         img,
-        f"Frame {frame.id}  |  Map pts: {len(mapp.points)}",
-        (10, 30),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.7,
-        (0, 255, 255),
-        2,
+        f"Frame {frame.id}  |  Map pts: {len(mapp.points)}  |  Pose: {src_label}",
+        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2,
     )
 
-    # ------------------------------------------------------------------
-    # Update displays
-    # ------------------------------------------------------------------
     display.paint(img)
     mapp.display()
 
 
-# ---------------------------------------------------------------------------
-# CLI entry-point
-# ---------------------------------------------------------------------------
+# Main pipeline
 
-def main(video_path: str | None = None, focal: float | None = None) -> None:
-    """Run the SLAM pipeline on a video file.
-
-    Parameters
-    ----------
-    video_path : str | None
-        Path to the input video.  If *None*, looks for
-        ``data/test_countryroad.mp4`` relative to project root.
-    focal : float | None
-        Override focal length.
-    """
+def main(data_dir: str | None = None, focal: float | None = None) -> None:
+    """Run the VI-SLAM pipeline on a Sensor Logger dataset directory."""
     global F, K, Kinv  # noqa: PLW0603
 
     if focal is not None:
         F = focal
-        K = np.array([[F, 0, W // 2], [0, F, H // 2], [0, 0, 1]], dtype=float)
+        K    = np.array([[F, 0, W // 2], [0, F, H // 2], [0, 0, 1]], dtype=float)
         Kinv = np.linalg.inv(K)
 
-    # Resolve video path
-    if video_path is None:
+    # Resolve data directory
+    if data_dir is None:
         proj_root = Path(__file__).resolve().parents[2]
-        candidates = [
-            proj_root / "data" / "test_countryroad.mp4",
-            proj_root / "data" / "car.mp4",
-            proj_root / "data" / "video.mp4",
-        ]
-        for c in candidates:
-            if c.exists():
-                video_path = str(c)
-                break
-        if video_path is None:
-            logger.error(
-                "No video file found.  Place a video in data/ or pass the path as argument.\n"
-                f"  Tried: {[str(c) for c in candidates]}"
-            )
-            sys.exit(1)
+        data_dir  = str(proj_root / "data" / "sensor_logger")
+    data_path = Path(data_dir)
 
-    logger.info(f"Opening video: {video_path}")
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        logger.error(f"Cannot open video: {video_path}")
+    if not data_path.exists():
+        logger.error(f"Data directory not found: {data_path}")
         sys.exit(1)
 
+    # Load image sequence
+    logger.info(f"Loading image sequence from: {data_path}")
+    sequence = load_image_sequence(data_path)
+    logger.info(f"Found {len(sequence)} frames spanning "
+                f"{sequence[-1][0] - sequence[0][0]:.1f} s")
+
+    # Load IMU (optional – pipeline degrades gracefully without it)
+    imu: IMUData | None = None
+    gyro_path  = data_path / "Gyroscope.csv"
+    accel_path = data_path / "Accelerometer.csv"
+
+    if gyro_path.exists() and accel_path.exists():
+        try:
+            imu = IMUData(gyro_path, accel_path)
+            logger.info("IMU data loaded – running visual-inertial mode")
+        except Exception as exc:
+            logger.warning(f"Could not load IMU data: {exc} – running visual-only")
+    else:
+        logger.warning("Gyroscope.csv / Accelerometer.csv not found – running visual-only")
+
     display = Display(W, H)
-    mapp = Map()
+    mapp    = Map()
     mapp.create_viewer()
 
-    logger.info("SLAM started – press 'q' in the display window to quit.")
+    logger.info("SLAM started – press 'q' to quit")
 
-    frame_count = 0
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        process_frame(frame, mapp, display)
-        frame_count += 1
+    for ts, img_path in sequence:
+        img = cv2.imread(str(img_path))
+        if img is None:
+            logger.warning(f"Could not read image: {img_path}")
+            continue
+        process_frame(img, ts, mapp, display, imu)
 
-    cap.release()
     cv2.destroyAllWindows()
     logger.info(
-        f"Done – processed {frame_count} frames, "
-        f"{len(mapp.points)} map points, "
-        f"{len(mapp.frames)} keyframes."
+        f"Done – {len(mapp.frames)} frames, {len(mapp.points)} map points."
     )
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="ROSS – Monocular Visual SLAM")
-    parser.add_argument("video", nargs="?", default=None, help="Path to input video")
-    parser.add_argument("--focal", type=float, default=None, help="Focal length in pixels")
-    parser.add_argument("--width", type=int, default=None, help="Processing width")
-    parser.add_argument("--height", type=int, default=None, help="Processing height")
-
+    parser = argparse.ArgumentParser(description="ROSS – Visual-Inertial SLAM")
+    parser.add_argument("data_dir", nargs="?", default=None,
+                        help="Path to Sensor Logger export directory")
+    parser.add_argument("--focal",  type=float, default=None, help="Focal length in pixels")
+    parser.add_argument("--width",  type=int,   default=None)
+    parser.add_argument("--height", type=int,   default=None)
     args = parser.parse_args()
 
-    if args.width:
-        W = args.width
-    if args.height:
-        H = args.height
+    if args.width:  W = args.width
+    if args.height: H = args.height
 
-    main(video_path=args.video, focal=args.focal)
+    main(data_dir=args.data_dir, focal=args.focal)

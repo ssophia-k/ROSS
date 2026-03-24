@@ -18,9 +18,7 @@ from skimage.transform import FundamentalMatrixTransform
 IRt = np.eye(4)
 
 
-# ---------------------------------------------------------------------------
 # Utility helpers
-# ---------------------------------------------------------------------------
 
 def add_ones(x: np.ndarray) -> np.ndarray:
     """Convert points to homogeneous coordinates by appending a column of 1s.
@@ -80,9 +78,7 @@ def denormalize(K: np.ndarray, pt: np.ndarray) -> tuple[int, int]:
     return int(round(ret[0])), int(round(ret[1]))
 
 
-# ---------------------------------------------------------------------------
 # Feature extraction
-# ---------------------------------------------------------------------------
 
 def extract(img: np.ndarray, max_corners: int = 3000) -> tuple[np.ndarray, np.ndarray | None]:
     """Detect keypoints with goodFeaturesToTrack and compute ORB descriptors.
@@ -126,9 +122,7 @@ def extract(img: np.ndarray, max_corners: int = 3000) -> tuple[np.ndarray, np.nd
     return np.array([(kp.pt[0], kp.pt[1]) for kp in kps]), des
 
 
-# ---------------------------------------------------------------------------
-# Pose extraction from the Fundamental matrix
-# ---------------------------------------------------------------------------
+# Fundamental matrix pose extraction
 
 def extract_pose(F: np.ndarray) -> np.ndarray:
     """Decompose a Fundamental matrix into a 4×4 [R|t] transformation via SVD.
@@ -171,9 +165,7 @@ def extract_pose(F: np.ndarray) -> np.ndarray:
     return ret
 
 
-# ---------------------------------------------------------------------------
-# Feature matching between two frames
-# ---------------------------------------------------------------------------
+# Feature match btwn 2 frames
 
 def match_frames(f1, f2) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Match features between two Frame objects and estimate relative pose.
@@ -229,9 +221,7 @@ def match_frames(f1, f2) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return idx1[inliers], idx2[inliers], Rt
 
 
-# ---------------------------------------------------------------------------
-# Triangulation
-# ---------------------------------------------------------------------------
+# Triangulation of 3-D points from two views
 
 def triangulate(
     pose1: np.ndarray,
@@ -276,9 +266,7 @@ def triangulate(
     return ret
 
 
-# ---------------------------------------------------------------------------
-# Frame class
-# ---------------------------------------------------------------------------
+# This is our frame class
 
 class Frame:
     """Represents a single camera frame in the SLAM system.
@@ -304,10 +292,11 @@ class Frame:
         ORB descriptors (N, 32).
     """
 
-    def __init__(self, mapp, img: np.ndarray, K: np.ndarray):
+    def __init__(self, mapp, img: np.ndarray, K: np.ndarray, timestamp: float | None = None):
         self.K = K
         self.Kinv = np.linalg.inv(K)
         self.pose = np.copy(IRt)
+        self.timestamp = timestamp   # seconds_elapsed from Sensor Logger
 
         self.id = len(mapp.frames)
         mapp.frames.append(self)
