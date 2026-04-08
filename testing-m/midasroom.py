@@ -37,7 +37,7 @@ import time, os
 
 MODEL_TYPE           = "DPT_Hybrid"   # "MiDaS_small" for speed
 
-MAX_FRAMES           = 30
+MAX_FRAMES           = 20
 TOTAL_YAW_DEGREES    = 360.0   # change to 180 if you only pan halfway
 
 # Point cloud
