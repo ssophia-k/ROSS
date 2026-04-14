@@ -2,10 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
-
-ROSS (Robotic Operating Swarm System) is a teleoperated mobile robot built around the ESP32-CAM. Currently streams MJPEG video over WiFi. Additional hardware (IMU, motors) is wired but not yet enabled in firmware. A Raspberry Pi serves as a flashing and charging station.
-
 ## Architecture
 
 - **Robot (ESP32-CAM)**: Streams MJPEG video over WiFi. Camera (OV2640). IMU and motors are wired but disabled.

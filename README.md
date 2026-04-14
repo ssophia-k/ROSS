@@ -1,6 +1,6 @@
-# ROSS — Robotic Operating Swarm System
+# ROSS — Remote Observation Scout Suite
 
-A teleoperated mobile robot platform built around the ESP32-CAM. Currently streams live MJPEG video over WiFi. A Raspberry Pi serves as a flashing and charging station.
+An ultra-low-cost scout robot for exploratory applications. Equipped with a camera and IMU, capable of visual SLAM and YOLO-based object and people detection.
 
 ## Overview
 
