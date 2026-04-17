@@ -525,7 +525,22 @@ def view_scene(mesh, pcd, people):
     print()
 
     vis = o3d.visualization.Visualizer()
-    vis.create_window(window_name="ROSS Room Scan", width=1440, height=900)
+    ok = vis.create_window(window_name="ROSS Room Scan", width=1440, height=900)
+    opt = vis.get_render_option()
+    if not ok or opt is None:
+        print("[Viewer] Open3D could not create a GL window "
+              "(Wayland/GLEW init failed).")
+        print("         Scan files are saved — open them with:")
+        print("           python -c \"import open3d as o3d; "
+              "o3d.visualization.draw_geometries(["
+              "o3d.io.read_triangle_mesh('ross_scan.ply')])\"")
+        print("         or any other PLY viewer (MeshLab, CloudCompare).")
+        try:
+            vis.destroy_window()
+        except Exception:
+            pass
+        return
+
     vis.add_geometry(mesh)
     if pcd is not None:
         vis.add_geometry(pcd)
@@ -533,7 +548,6 @@ def view_scene(mesh, pcd, people):
         for geom in make_person_label(p):
             vis.add_geometry(geom)
 
-    opt = vis.get_render_option()
     opt.background_color    = np.array([0.04, 0.05, 0.08])
     opt.mesh_show_back_face = True
     opt.light_on            = True
