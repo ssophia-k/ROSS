@@ -1,6 +1,11 @@
 # Project
 /data/
 .env
+.mcp.json
+
+# SLAM outputs / model weights
+*.ply
+*.pt
 
 # PlatformIO
 .pio/
