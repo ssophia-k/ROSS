@@ -1,88 +1,122 @@
 # ROSS — Remote Observation Scout Suite
 
-An ultra-low-cost scout robot for exploratory applications. Equipped with a camera and IMU, capable of visual SLAM and YOLO-based object and people detection.
+An ultra-low-cost scout robot for exploratory applications. An ESP32-CAM
+streams MJPEG video and IMU data over WiFi; a Raspberry Pi station flashes
+firmware, monitors the battery, and runs teleop and SLAM from a single CLI.
 
-## Overview
-
-| Subsystem | Hardware | Role |
-|-----------|----------|------|
-| **Robot** | ESP32-CAM, Battery, Boost Converter | Streams video over WiFi |
-| **Station** | Raspberry Pi, Fuel Gauge, USB-C Charger | Flashes firmware over UART; monitors/charges battery |
-
-Additional hardware (IMU, motor driver, motors) is wired but not yet enabled in firmware.
+| Subsystem   | Hardware                                       | Role                                              |
+|-------------|------------------------------------------------|---------------------------------------------------|
+| **Robot**   | ESP32-CAM, IMU, DRV8833 motor driver, battery  | Streams video, drives motors, reports IMU         |
+| **Station** | Raspberry Pi, MAX17048 fuel gauge, USB-C charger | Flashes firmware over UART, monitors battery, teleoperates |
 
 ---
 
-## Getting Started
-
-### Prerequisites
-
-- **Raspberry Pi** running Raspberry Pi OS
-- **Python 3.12** and [uv](https://docs.astral.sh/uv/)
-- **PlatformIO** (`uv tool install platformio`)
-
-### Quick Start
+## Quickstart
 
 ```bash
-# 1. Clone and install dependencies
-git clone <repo-url> && cd ROSS
+# 1. Install dependencies (uv + PlatformIO)
 uv sync
+uv tool install platformio
 
 # 2. Configure WiFi credentials
 make setup-env
 
-# 3. Build and flash
-make deploy
+# 3. Build firmware and flash it over UART
+make build
+uv run ross flash firmware/.pio/build/esp32cam/firmware.bin
 
-# 4. Open http://<esp32-ip>/stream in a browser
+# 4. Drive the robot once it reboots and joins WiFi
+uv run ross teleop
 ```
+
+`uv run ross --help` lists every subcommand and its flags.
 
 ---
 
-## Project Structure
+## CLI reference
 
-```
-ROSS/
-├── firmware/                  # ESP32-CAM firmware (C++ / PlatformIO)
-│   ├── src/
-│   │   ├── main.cpp           # HTTP server, WiFi, MJPEG streaming
-│   │   ├── camera.h / .cpp    # Camera driver (isolated TU for sensor_t conflict)
-│   │   ├── motors.h           # DRV8833 PWM motor control (not yet used)
-│   │   └── config.h           # WiFi credential injection, stream settings
-│   ├── platformio.ini         # Build configuration
-│   └── load_env.py            # Pre-build script: .env → build flags
-├── ross/                      # Python package (Raspberry Pi utilities)
-│   ├── flash.py               # Semi-automated firmware flashing over UART
-│   ├── config.py              # Project paths and logging
-│   └── ...                    # Other utilities (teleop, fuel gauge, etc.)
-├── docs/
-│   └── esp32-cam-pinout.png   # Pinout reference diagram
-├── Makefile                   # Build, flash, and dev targets
-├── .env.sample                # WiFi credentials template
-└── LICENSE                    # MIT
-```
+Python features live under one Typer entry point. Run `uv run ross --help`
+(or `ross --help` when the venv is on `PATH`) to see the current surface.
+For per-command options, use `ross <command> --help`.
+
+| Command                | What it does                                                      |
+|------------------------|-------------------------------------------------------------------|
+| `ross flash`           | Flash firmware onto ESP32-CAM over UART (drives GPIO 0, runs esptool) |
+| `ross teleop`          | WiFi teleop: WASD/arrow keys + MJPEG stream, deadman switch       |
+| `ross slam`            | Room scan via MiDaS depth + ICP + Poisson mesh + YOLO humans      |
+| `ross fuel`            | Poll battery voltage / state of charge / charge rate              |
+| `ross serial test`     | Verify UART wiring — listen for bytes after RST                   |
+| `ross serial teleop`   | Drive motors over UART (no WiFi)                                  |
+
+SLAM outputs land in `outputs/` by default; YOLO weights are cached in
+`models/`. Both directories are gitignored.
+
+---
+
+## Make targets
+
+The Makefile is kept short on purpose — it handles firmware and dev infra
+only. Python features are in the `ross` CLI above.
+
+| Target          | Purpose                                          |
+|-----------------|--------------------------------------------------|
+| `make help`     | List targets and point to `ross --help`          |
+| `make setup-env`| Interactive WiFi credentials → `.env`            |
+| `make build`    | Build firmware (`pio run`)                       |
+| `make serial`   | Monitor serial output (`screen /dev/ttyAMA0`)    |
+| `make lint`     | `ruff check` on Python sources                   |
+| `make format`   | `ruff format` on Python sources                  |
+| `make clean`    | Remove `firmware/.pio/`                          |
+
+---
+
+## Repository layout
+
+Run `tree -L 2 -I '.venv|.git|__pycache__'` for the current shape. At a
+glance:
+
+- `firmware/` — ESP32-CAM PlatformIO project (C++). `src/main.cpp` runs the
+  HTTP + MJPEG servers; `src/camera.cpp` is isolated to avoid `sensor_t`
+  conflicts between Adafruit sensor headers and `esp_camera.h`.
+  `load_env.py` injects WiFi credentials from `.env` at build time.
+- `ross/` — Python package:
+  - `ross/cli.py`, `ross/commands/` — Typer surface (thin wrappers).
+  - `ross/drivers/` — RPi-side hardware (GPIO via `pinctrl`, MAX17048 I2C).
+  - `ross/net/` — shared networking (mDNS discovery, robot HTTP client).
+  - `ross/slam/` — MiDaS depth, YOLO + Re-ID, ICP registration, Poisson mesh,
+    PLY I/O.
+- `notebooks/` — experimental prototypes (ORB-SLAM, MiDaS variants, etc.)
+  kept for reference; not supported by the CLI.
+- `outputs/`, `models/` — gitignored. SLAM scans and cached model weights.
+- `docs/` — hardware reference images.
 
 ---
 
 ## Firmware
 
-The firmware serves an HTTP server on port 80:
+The firmware serves two HTTP servers:
 
-| Endpoint | Method | Response | Description |
-|----------|--------|----------|-------------|
-| `/` | GET | HTML | Status page |
-| `/stream` | GET | MJPEG | Live camera video stream |
+| Port | Endpoint       | Description                     |
+|------|----------------|---------------------------------|
+| 80   | `GET /`        | HTML status page                |
+| 80   | `GET /motor?l=<-255..255>&r=<-255..255>` | Motor command |
+| 80   | `GET /stop`    | Stop motors                     |
+| 80   | `GET /imu`     | JSON: `{accel, gyro, temp}`     |
+| 81   | `GET /stream`  | MJPEG camera stream             |
 
-### Build & Flash
+A 500 ms deadman timer stops the motors if no command arrives.
+
+### Build & flash
 
 ```bash
-make setup-env   # Configure WiFi (first time only)
-make build       # Build firmware
-make deploy      # Build + flash
-make serial      # Monitor serial output (Ctrl-A k to exit)
+make setup-env   # first time: fill in .env
+make build
+uv run ross flash firmware/.pio/build/esp32cam/firmware.bin
+make serial      # watch the boot log (Ctrl-A k to exit)
 ```
 
-WiFi credentials are injected at build time from `.env` via `firmware/load_env.py`.
+WiFi credentials are injected at compile time from `.env` via
+`firmware/load_env.py`.
 
 ---
 
@@ -92,69 +126,68 @@ WiFi credentials are injected at build time from `.env` via `firmware/load_env.p
 
 #### Power
 
-Battery → Boost Converter (3.7V → 6V) → ESP32-CAM 5V pin.
+Battery → boost converter (3.7 V → 6 V) → ESP32-CAM 5 V pin.
 
-| From | To | Wire |
-|------|----|------|
-| Battery JST-PH **+** | Boost Converter **VIN** | Red |
-| Battery JST-PH **–** | Common ground bus | Black |
-| Boost Converter **VOUT** | ESP32-CAM **5V pin** | Red — 6V rail |
-| ESP32-CAM **GND** | Common ground bus | Black |
+| From                   | To                          | Wire                      |
+|------------------------|-----------------------------|---------------------------|
+| Battery JST-PH **+**   | Boost converter **VIN**     | Red                       |
+| Battery JST-PH **–**   | Common ground bus           | Black                     |
+| Boost converter **VOUT** | ESP32-CAM **5V pin**      | Red — 6 V rail            |
+| ESP32-CAM **GND**      | Common ground bus           | Black                     |
 
-> The boost converter has no reverse-voltage protection. Double-check polarity before applying power.
+> The boost converter has no reverse-voltage protection. Double-check
+> polarity before applying power.
 
----
-
-#### ESP32-CAM Pinout
+#### ESP32-CAM pinout
 
 ![ESP32-CAM Pinout](docs/esp32-cam-pinout.png)
 
-| GPIO | Assigned To | Notes |
-|------|------------|-------|
-| **GPIO 2** | IMU SDA (future) | I2C data · strapping pin |
-| **GPIO 3** (UART RX) | IMU SCL (future) | Repurposed after boot |
-| **GPIO 12** | DRV8833 AIN1 (future) | Left motor forward · strapping pin |
-| **GPIO 13** | DRV8833 AIN2 (future) | Left motor reverse |
-| **GPIO 14** | DRV8833 BIN1 (future) | Right motor forward |
-| **GPIO 15** | DRV8833 BIN2 (future) | Right motor reverse · strapping pin |
-| **GPIO 1** (UART TX) | Station RX | Flashing only |
-| **GPIO 0** | Station GPIO | Boot mode control |
+| GPIO             | Assigned to              | Notes                                       |
+|------------------|--------------------------|---------------------------------------------|
+| **GPIO 2**       | IMU SDA                  | I2C data · strapping pin                    |
+| **GPIO 3** (RX)  | IMU SCL                  | Repurposed after boot                       |
+| **GPIO 12**      | DRV8833 AIN1             | Left motor forward · strapping pin          |
+| **GPIO 13**      | DRV8833 AIN2             | Left motor reverse                          |
+| **GPIO 14**      | DRV8833 BIN1             | Right motor forward                         |
+| **GPIO 15**      | DRV8833 BIN2             | Right motor reverse · strapping pin         |
+| **GPIO 1** (TX)  | Station RX               | Flashing only                               |
+| **GPIO 0**       | Station GPIO             | Boot mode control                           |
 
-#### Strapping Pin Notes
+#### Strapping pin notes
 
-GPIO 0, 2, 12, and 15 are sampled at reset to configure boot mode and flash voltage.
+GPIO 0, 2, 12, and 15 are sampled at reset to configure boot mode and flash
+voltage.
 
-| GPIO | Strapping Function | Required State at Boot | This Design |
-|------|--------------------|----------------------|-------------|
-| **GPIO 0** | Boot mode select | HIGH = run, LOW = flash | Controlled by RPi GPIO 17 |
-| **GPIO 2** | Download mode | LOW or floating | IMU SDA pull-up is weak enough |
-| **GPIO 12** | Flash voltage select | LOW = 3.3V | DRV8833 input floats LOW when unpowered |
-| **GPIO 15** | Boot log output | HIGH = print boot messages | DRV8833 BIN2 may suppress boot messages if LOW |
-
----
+| GPIO      | Strapping function   | Required state at boot   | This design                                    |
+|-----------|----------------------|--------------------------|-----------------------------------------------|
+| **GPIO 0**  | Boot mode select    | HIGH = run, LOW = flash  | Controlled by RPi GPIO 17                     |
+| **GPIO 2**  | Download mode       | LOW or floating          | IMU SDA pull-up is weak enough                |
+| **GPIO 12** | Flash voltage select| LOW = 3.3 V              | DRV8833 input floats LOW when unpowered       |
+| **GPIO 15** | Boot log output     | HIGH = print boot msgs   | DRV8833 BIN2 may suppress boot msgs if LOW    |
 
 ### Station (Raspberry Pi)
 
-#### UART Connections (for flashing)
+#### UART connections (for flashing)
 
-| RPi Pin | Signal | ESP32-CAM Pin | Notes |
-|---------|--------|---------------|-------|
-| Pin 2 | 5V | **5V** | Powers ESP32 during flashing |
-| Pin 6 | GND | **GND** | Common ground |
-| Pin 8 | GPIO 14 — UART TX | **GPIO 3 (RX)** | RPi TX → ESP RX |
-| Pin 10 | GPIO 15 — UART RX | **GPIO 1 (TX)** | ESP TX → RPi RX |
-| Pin 11 | GPIO 17 — output | **GPIO 0** | LOW = flash mode |
+| RPi Pin | Signal                | ESP32-CAM Pin | Notes                       |
+|---------|-----------------------|---------------|-----------------------------|
+| Pin 2   | 5 V                   | **5V**        | Powers ESP32 during flashing |
+| Pin 6   | GND                   | **GND**       | Common ground               |
+| Pin 8   | GPIO 14 — UART TX     | **GPIO 3 (RX)** | RPi TX → ESP RX           |
+| Pin 10  | GPIO 15 — UART RX     | **GPIO 1 (TX)** | ESP TX → RPi RX           |
+| Pin 11  | GPIO 17 — output      | **GPIO 0**    | LOW = flash mode            |
 
-#### Battery Charging
+#### Battery charging
 
-Fuel gauge (MAX17048) sits in-line between battery and charger. Pi monitors state of charge over I2C.
+Fuel gauge (MAX17048) sits in-line between battery and charger. The Pi
+monitors state of charge over I2C.
 
-| RPi Pin | Signal | MAX17048 Pin |
-|---------|--------|--------------|
-| Pin 1 | 3.3V | **VIN** |
-| Pin 3 | GPIO 2 (SDA) | **SDA** |
-| Pin 5 | GPIO 3 (SCL) | **SCL** |
-| Pin 9 | GND | **GND** |
+| RPi Pin | Signal          | MAX17048 Pin |
+|---------|-----------------|--------------|
+| Pin 1   | 3.3 V           | **VIN**      |
+| Pin 3   | GPIO 2 (SDA)    | **SDA**      |
+| Pin 5   | GPIO 3 (SCL)    | **SCL**      |
+| Pin 9   | GND             | **GND**      |
 
 ---
 
@@ -163,10 +196,12 @@ Fuel gauge (MAX17048) sits in-line between battery and charger. Pi monitors stat
 ### Semi-automated
 
 ```bash
-make deploy
+uv run ross flash firmware/.pio/build/esp32cam/firmware.bin
 ```
 
-The script `ross/flash.py` controls GPIO 0 and runs esptool. You press RST when prompted.
+`ross flash` pulls GPIO 17 low, asks you to press RST, runs esptool, then
+releases GPIO 17. Pass `--chip-id` to only verify connectivity, or `--erase`
+to wipe the chip before writing.
 
 ### Manual
 
@@ -180,11 +215,25 @@ pinctrl set 17 ip              # Release GPIO 0
 # Press RST → ESP32 boots normally
 ```
 
-### Setup (first time)
+### Setup (first time only)
 
-1. Enable hardware UART: `sudo raspi-config` → Interface Options → Serial Port → login shell **No**, hardware **Yes**
-2. Grant serial access: `sudo usermod -aG dialout $USER && sudo reboot`
-3. Verify: `ls -l /dev/ttyAMA0`
+1. Enable hardware UART: `sudo raspi-config` → Interface Options → Serial Port
+   → login shell **No**, hardware **Yes**.
+2. Grant serial access: `sudo usermod -aG dialout $USER && sudo reboot`.
+3. Verify: `ls -l /dev/ttyAMA0`.
+
+---
+
+## Development
+
+- **Package manager**: `uv`. Use `uv sync` for base deps; `uv sync --extra slam`
+  pulls in the ML stack (torch, open3d, ultralytics) needed by `ross slam`.
+- **Style**: ruff. `make lint` and `make format`.
+- **Adding a CLI command**: implement the logic under `ross/drivers/`,
+  `ross/net/`, or `ross/slam/`; add a thin Typer wrapper to
+  `ross/commands/<name>.py`; register it in `ross/cli.py`.
+- **Prototypes**: park experimental code under `notebooks/`. It's not picked
+  up by the Typer CLI.
 
 ---
 

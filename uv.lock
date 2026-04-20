@@ -1245,6 +1245,7 @@ dependencies = [
     { name = "pyserial" },
     { name = "python-dotenv" },
     { name = "smbus2" },
+    { name = "typer" },
     { name = "zeroconf" },
 ]
 
@@ -1277,6 +1278,7 @@ requires-dist = [
     { name = "timm", marker = "extra == 'slam'" },
     { name = "torch", marker = "extra == 'slam'" },
     { name = "torchvision", marker = "extra == 'slam'" },
+    { name = "typer", specifier = ">=0.12" },
     { name = "ultralytics", marker = "extra == 'slam'" },
     { name = "zeroconf", specifier = ">=0.80" },
 ]

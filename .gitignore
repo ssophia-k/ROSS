@@ -6,6 +6,10 @@
 # SLAM outputs / model weights
 *.ply
 *.pt
+outputs/*
+!outputs/.gitkeep
+models/*
+!models/.gitkeep
 
 # PlatformIO
 .pio/

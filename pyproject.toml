@@ -5,7 +5,7 @@ build-backend = "flit_core.buildapi"
 [project]
 name = "ross"
 version = "0.0.1"
-description = "Robotic Operating Swarm System"
+description = "Remote Observation Scout Suite — ESP32-CAM scout robot + Raspberry Pi station."
 authors = [
   { name = "The Cooper Union for the Advancement of Science and Art" },
 ]
@@ -13,41 +13,44 @@ license = { file = "LICENSE" }
 readme = "README.md"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License"
+    "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
     "esptool",
     "loguru",
+    "opencv-python>=4.8",
     "pyserial",
     "python-dotenv",
     "smbus2>=0.6.0",
-    "opencv-python>=4.8",
+    "typer>=0.12",
     "zeroconf>=0.80",
 ]
 requires-python = "~=3.12.0"
 
+[project.scripts]
+ross = "ross.cli:app"
+
 [project.optional-dependencies]
 dev = ["ruff"]
 slam = [
+    "open3d",
     "opencv-python",
+    "scipy",
+    "timm",
     "torch",
     "torchvision",
-    "timm",
-    "open3d",
-    "scipy",
     "ultralytics",
 ]
-
 
 [tool.ruff]
 line-length = 99
 src = ["ross"]
 include = ["pyproject.toml", "ross/**/*.py"]
+extend-exclude = ["notebooks"]
 
 [tool.ruff.lint]
-extend-select = ["I"]  # Add import sorting
+extend-select = ["I"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["ross"]
 force-sort-within-sections = true
-
